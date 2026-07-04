@@ -56,12 +56,20 @@ Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a th
 
 **In the terminal** — run `/handoff` (or `/handoff:handoff` if you installed the plugin; or `/handoff <the next task>`, or just ask to "hand this off to a fresh session"). It writes the brief and opens a new mirrored session automatically: a new tmux window, or a new Terminal window on macOS, or it prints the exact command to paste if neither is available.
 
-**In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you. It picks the best in-app continuation:
+**In the desktop app** — the skill hands the continuation to the app's own task system: a **chip** appears in your session (`Pick up handoff: …`). One click and the new session starts running immediately — it inherits the origin session's model, effort and permission mode, shows up **linked under the origin session** ("session launched"), and reports back there when it finishes. It runs in a fresh worktree cut from your last commit, so commit anything the task needs first (the skill reminds you when that matters).
 
-- **One-click chip** (when the app exposes a session-spawning tool, and your work is committed): click it and the new session **starts running immediately**, inherits the origin session's model/effort/permission, appears linked to it in the app ("session launched"), and reports back when it finishes. It runs in a fresh worktree, which is why uncommitted work opts out.
-- **Deep link** (`claude://code/new`): a new session tab opens in the real project directory with the pickup prompt prefilled — press Enter to start (the app re-asks folder access; that consent is per-session and can't be skipped).
+If the app doesn't expose the session-spawning tool, the spawner falls back to a `claude://code/new` deep link — a new session tab with the pickup prompt prefilled and the folder selected; press Enter to start. (Auto-submit from outside the app doesn't exist by design: the app's session-start IPC only accepts its own UI, so a malicious URL can never auto-run a prompt. One click is the floor.) Last resort: new session (sidebar `+`), then run the **pickup** skill.
 
-Auto-submit from outside the app doesn't exist by design — the app's IPC only accepts it from its own UI, so a malicious URL can never auto-run a prompt. One click or one Enter is the floor. If neither path is available, the fallback is manual: new session (sidebar `+`), then run the **pickup** skill.
+<details>
+<summary><b>How is a handoff chip different from a regular task chip?</b></summary>
+
+Mechanically they're the same plumbing — the desktop app's `spawn_task` tool, which queues a suggestion chip; clicking it creates a fresh-worktree session that's linked to the origin (`spawnedFrom` in the app's session registry) and inherits its settings. The difference is the contract:
+
+- A **regular task chip** delegates a *side errand* the session noticed in passing (dead code, a stale doc). Its whole context fits in the chip's prompt, and the origin session remains the main thread of work.
+- A **handoff chip** transfers *ownership of the main task*. Its prompt is just a pointer to the real payload — the brief in `~/.claude/handoffs/` with the task, decisions already made, gotchas, and the verify step — and the origin session is done: you `/clear` it and move on. The new session isn't helping the old one; it *replaces* it.
+
+Same vehicle, opposite direction: side-task chips fan work *out* of a session that continues; the handoff chip is how a session that's ending passes the torch.
+</details>
 
 ### How the mirroring works
 

@@ -40,16 +40,16 @@ has zero memory of this conversation.
 task off to you. Read the handoff file at `<handoffFile>`, state the task in one line, then
 execute it."*
 
-**In the Claude desktop app** (`$CLAUDE_CODE_ENTRYPOINT` contains `desktop`), pick by state:
-- **If a `spawn_task`-style tool is available AND the task doesn't depend on uncommitted
-  changes** (non-git project, or clean/committed tree): call it — title
-  `Pick up handoff: <slug>`, prompt as above. The chip **auto-runs on one click** and is the
-  best desktop path: the new session inherits this session's model/effort/permission, shows
-  up linked to this one in the app ("session launched"), and reports back here when it ends.
-  It runs in a fresh worktree, which is why uncommitted work rules it out.
-- **Otherwise** run the spawner below — on desktop it deep-links a new session tab
-  (`claude://code/new`) with the prompt prefilled in the real project directory; the user
-  presses Enter and re-approves folder access.
+**In the Claude desktop app** (`$CLAUDE_CODE_ENTRYPOINT` contains `desktop`):
+- **If a `spawn_task`-style tool is available, use it** — title `Pick up handoff: <slug>`,
+  prompt as above. This is the desktop path: the chip **auto-runs on one click**, the new
+  session inherits this session's model/effort/permission, shows up linked to this one in
+  the app ("session launched"), and reports back here when it ends. It runs in a **fresh
+  worktree** (from the last commit) — so if the task depends on uncommitted changes, commit
+  them first, or say so plainly and note the brief covers reconstructing the work.
+- **Only if no such tool exists**, run the spawner below — on desktop it deep-links a new
+  session tab (`claude://code/new`) with the prompt prefilled in the real project directory;
+  the user presses Enter and re-approves folder access.
 
 **Everywhere else** run the spawner:
 
