@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-17%20passing-brightgreen.svg)](./tests/handoff.test.sh)
+[![tests](https://img.shields.io/badge/tests-20%20passing-brightgreen.svg)](./tests/handoff.test.sh)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
@@ -99,7 +99,7 @@ skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI +
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
 commands/handoff.md                              thin /handoff wrapper for install.sh installs
 .claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-tests/handoff.test.sh                            17 tests (detection, routing, deep link, safety, tmux)
+tests/handoff.test.sh                            20 tests (detection, routing, deep link, safety, tmux)
 install.sh · LICENSE
 ```
 
@@ -115,7 +115,7 @@ Node (bundled with Claude Code) and the `claude` CLI. tmux is optional — with 
 bash tests/handoff.test.sh
 ```
 
-Covers mirror detection, shell-injection safety, every fallback path, error handling, real tmux window creation, and a live end-to-end handoff pickup.
+Covers mirror detection, shell-injection safety, error handling, and the full routing matrix — desktop deep link (success, failure fallback, precedence over tmux), macOS Terminal.app (success and paste fallback), simulated Linux, and real tmux window creation on a private socket. Window-opening binaries are shimmed onto `PATH`, so the suite never opens anything on your screen.
 
 ## Roadmap
 

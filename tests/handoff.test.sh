@@ -98,11 +98,34 @@ else
   echo "  SKIP  desktop deep-link tests (darwin-only branch)"
 fi
 
-# 15. dry-run in desktop mode shows the deep link
+# 15/16. plain macOS terminal -> Terminal.app window via osascript; failure -> paste fallback.
+# osascript is shimmed onto PATH so no real window opens.
+if [ "$(uname)" = "Darwin" ]; then
+  SHIM="$(mktemp -d)"
+  printf '#!/bin/sh\nexit 0\n' > "$SHIM/osascript"; chmod +x "$SHIM/osascript"
+  OUT=$(env -u TMUX PATH="$SHIM:$PATH" HOME=/tmp CLAUDE_CODE_ENTRYPOINT=cli node "$SPAWN" --dir /tmp --handoff "$HF" 2>&1); rc=$?
+  { [ $rc -eq 0 ] && has "$OUT" "new Terminal window"; } && ok "plain macOS terminal -> Terminal.app window" || no "macOS Terminal branch" "$OUT (rc=$rc)"
+
+  printf '#!/bin/sh\nexit 1\n' > "$SHIM/osascript"; chmod +x "$SHIM/osascript"
+  OUT=$(env -u TMUX PATH="$SHIM:$PATH" HOME=/tmp CLAUDE_CODE_ENTRYPOINT=cli node "$SPAWN" --dir /tmp --handoff "$HF" 2>&1); rc=$?
+  { [ $rc -eq 0 ] && has "$OUT" "Paste this into a new terminal"; } && ok "osascript fails -> paste fallback" || no "osascript fallback" "$OUT (rc=$rc)"
+  rm -rf "$SHIM"
+else
+  echo "  SKIP  macOS Terminal.app tests (darwin-only branch)"
+fi
+
+# 17. Linux terminal -> paste fallback (platform overridden before the module loads)
+OUT=$(env -u TMUX HOME=/tmp CLAUDE_CODE_ENTRYPOINT=cli node --input-type=module -e "
+Object.defineProperty(process, 'platform', { value: 'linux' });
+process.argv = ['node', 'spawn', '--dir', '/tmp', '--handoff', '$HF'];
+await import('file://$SPAWN');" 2>&1); rc=$?
+{ [ $rc -eq 0 ] && has "$OUT" "Paste this into a new terminal"; } && ok "linux (simulated) -> paste fallback" || no "linux fallback" "$OUT (rc=$rc)"
+
+# 18. dry-run in desktop mode shows the deep link
 OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=claude-desktop node "$SPAWN" --dir /tmp --handoff "$HF" --dry-run 2>&1)
 { has "$OUT" "desktop: true" && has "$OUT" "deeplink: claude://code/new?q="; } && ok "dry-run shows desktop deep link" || no "dry-run deeplink" "$OUT"
 
-# 16. terminal CLI entrypoint is NOT treated as desktop
+# 19. terminal CLI entrypoint is NOT treated as desktop
 OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=cli node "$SPAWN" --dir /tmp --handoff "$HF" --dry-run 2>&1)
 has "$OUT" "desktop: false" && ok "cli entrypoint -> not desktop" || no "cli entrypoint" "$OUT"
 
