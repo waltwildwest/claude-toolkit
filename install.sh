@@ -16,8 +16,9 @@ for dir in "$SRC"/skills/*/; do
   cp -R "$dir" "$SKILLS/$name"
   echo "+  installed skill: $name"
 done
-# keep the spawner executable
+# keep the helper scripts executable
 chmod +x "$SKILLS"/handoff/handoff-spawn.js 2>/dev/null || true
+chmod +x "$SKILLS"/route/route-report.js 2>/dev/null || true
 
 # Thin CLI command wrapper (CLI only; desktop uses the skill directly)
 for cmd in "$SRC"/commands/*.md; do
@@ -36,3 +37,4 @@ echo ""
 echo "Done."
 echo "  Terminal:  /handoff  (or ask to 'hand this off to a fresh session')"
 echo "  Desktop:   run the 'handoff' skill; in the new session, run 'pickup'."
+echo "  Routing:   /route <task> to size+dispatch, /route report for the savings math."

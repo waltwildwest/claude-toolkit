@@ -4,11 +4,11 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-20%20passing-brightgreen.svg)](./tests/handoff.test.sh)
+[![tests](https://img.shields.io/badge/tests-34%20passing-brightgreen.svg)](./tests/handoff.test.sh)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
-**Available now:** [`handoff`](#handoff--pass-a-task-to-a-fresh-session) · `pickup`.
+**Available now:** [`handoff`](#handoff--pass-a-task-to-a-fresh-session) · `pickup` · [`route`](#route--cost-aware-model-routing-with-honest-math).
 
 ---
 
@@ -92,14 +92,35 @@ It never writes to `~/.claude` — it only *reads* the transcript to learn your 
 
 Reads the most recent brief in `~/.claude/handoffs/`, states the task, and continues it — honoring the brief's decisions, staying in scope, and running its verify step. Mainly for the desktop flow, handy anywhere.
 
+## `route` — cost-aware model routing, with honest math
+
+"Just use the best model for everything" is simple and expensive. `route` packages the policy I actually run:
+
+1. **Size before dispatching.** Every delegable task gets a tier: grunt work goes to Haiku, standard implementation to Sonnet, and judgment calls stay with the top model. The skill gives Claude the sizing table and the rules of thumb (including when to give up and promote a task a tier).
+2. **Fan out big jobs.** Many independent pieces run in parallel on cheap models; the strong model reviews the merged result. Cheap generation plus expensive review is the whole trade.
+3. **Measure it.** `route-report` reads your local transcripts (nothing leaves your machine), dedupes streamed messages, prices every token at current API rates, and prints your actual cost against **three baselines**: the naive one (top model, every call, no cache), top-model-with-cache (what routing alone saved), and your-mix-without-cache (what caching alone saved).
+
+```console
+$ /route report
+  actual cost                     $6540.79
+  naive baseline (no cache)       $63448.95   you saved 89.7%
+  same top model, with cache      $10584.14   routing alone saved 38.2%
+  your mix, cache off             $40727.65   caching alone saved 83.9%
+```
+
+That output is the point: a savings number without its baseline is marketing. The report prints the flattering number and the honest ones in the same breath. (If you're on a subscription rather than the API, the dollars are notional at API rates — the percentages are what matter.)
+
+Install is the same as handoff: `/plugin install route@claude-toolkit`, or `./install.sh` puts the `route` skill and the `/route` command in place. Use `/route <task>` to size and dispatch a task, `/route report` for the math.
+
 ## Repository layout
 
 ```
 skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI + desktop)
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
-commands/handoff.md                              thin /handoff wrapper for install.sh installs
+skills/route/     SKILL.md + route-report.js     sizing policy + transcript cost report
+commands/handoff.md · commands/route.md          thin CLI wrappers for install.sh installs
 .claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-tests/handoff.test.sh                            20 tests (detection, routing, deep link, safety, tmux)
+tests/handoff.test.sh · tests/route.test.sh      34 tests (routing matrix, safety, cost math, baselines)
 install.sh · LICENSE
 ```
 
@@ -112,14 +133,14 @@ Node (bundled with Claude Code) and the `claude` CLI. tmux is optional — with 
 ## Tests
 
 ```bash
-bash tests/handoff.test.sh
+bash tests/handoff.test.sh && bash tests/route.test.sh
 ```
 
 Covers mirror detection, shell-injection safety, error handling, and the full routing matrix — desktop deep link (success, failure fallback, precedence over tmux), macOS Terminal.app (success and paste fallback), simulated Linux, and real tmux window creation on a private socket. Window-opening binaries are shimmed onto `PATH`, so the suite never opens anything on your screen.
 
 ## Roadmap
 
-More standalone tools as I write them up: model-aware cost routing, adversarial verification, an attention queue for parallel sessions.
+More standalone tools as I write them up: adversarial verification, an attention queue for parallel sessions.
 
 ## Contributing
 
