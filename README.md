@@ -3,7 +3,7 @@
 > Small, honest tools for [Claude Code](https://claude.com/claude-code) that work in both the CLI and the desktop app.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-skill%20%2B%20command-black.svg)](https://claude.com/claude-code)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
 [![tests](https://img.shields.io/badge/tests-13%20passing-brightgreen.svg)](./tests/handoff.test.sh)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
@@ -32,6 +32,17 @@ Switch to it with your tmux window keys. Safe to /clear here and move on.
 
 ### Install
 
+**Option A — as a plugin (recommended).** From inside any Claude Code session:
+
+```
+/plugin marketplace add whomsfun-ai/claude-toolkit
+/plugin install handoff@claude-toolkit
+```
+
+That installs both skills (`handoff` + `pickup`) through Claude Code's own plugin flow — versioned, updatable with `/plugin marketplace update`, removable from the `/plugin` menu. As a plugin the skills are namespaced, so the slash form is `/handoff:handoff` and `/handoff:pickup`; asking in plain words ("hand this off to a fresh session") works the same either way.
+
+**Option B — copy the files.** In your own terminal:
+
 ```bash
 git clone https://github.com/whomsfun-ai/claude-toolkit
 cd claude-toolkit && ./install.sh
@@ -39,9 +50,11 @@ cd claude-toolkit && ./install.sh
 
 Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a thin `/handoff` **command** into `~/.claude/commands/`. To uninstall, delete those.
 
+> **Run `install.sh` yourself — don't ask Claude to.** If you ask Claude Code to run the installer for you in auto mode, its permission classifier will refuse: an agent writing executable code into `~/.claude/` is exactly the kind of action it's designed to hand back to a human. That's Claude's safety model working, not a bug in the toolkit — and it's why the plugin path exists. The installer is ~30 lines; read it, then run it.
+
 ### Use it
 
-**In the terminal** — run `/handoff` (or `/handoff <the next task>`, or just ask to "hand this off to a fresh session"). It writes the brief and opens a new mirrored session automatically: a new tmux window, or a new Terminal window on macOS, or it prints the exact command to paste if neither is available.
+**In the terminal** — run `/handoff` (or `/handoff:handoff` if you installed the plugin; or `/handoff <the next task>`, or just ask to "hand this off to a fresh session"). It writes the brief and opens a new mirrored session automatically: a new tmux window, or a new Terminal window on macOS, or it prints the exact command to paste if neither is available.
 
 **In the desktop app** — the desktop app supports skills but not custom commands or auto-spawning a session, so:
 
@@ -77,10 +90,13 @@ Reads the most recent brief in `~/.claude/handoffs/`, states the task, and conti
 ```
 skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI + desktop)
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
-commands/handoff.md                              thin /handoff wrapper for the CLI
+commands/handoff.md                              thin /handoff wrapper for install.sh installs
+.claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
 tests/handoff.test.sh                            13 tests (detection, safety, tmux, live pickup)
 install.sh · LICENSE
 ```
+
+The same `skills/` folders back both install paths — the marketplace manifest just points at them, so there is exactly one source of truth.
 
 ## Requirements
 
