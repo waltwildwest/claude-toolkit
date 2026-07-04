@@ -56,13 +56,13 @@ Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a th
 
 **In the terminal** — run `/handoff` (or `/handoff:handoff` if you installed the plugin; or `/handoff <the next task>`, or just ask to "hand this off to a fresh session"). It writes the brief and opens a new mirrored session automatically: a new tmux window, or a new Terminal window on macOS, or it prints the exact command to paste if neither is available.
 
-**In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you; nothing outside the app can open a desktop session, so the flow is:
+**In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you. When the app exposes a session-spawning tool (recent desktop builds do), the skill uses it: you get a **one-click chip** that opens the new session with the brief already loaded. Otherwise the flow is:
 
 1. run the **handoff** skill — it writes the brief and prints these steps;
 2. open a new session in the same project (sidebar `+`);
 3. run the **pickup** skill — it loads the brief and continues.
 
-Same context handoff; the only manual step is opening the session, which the app makes you do anyway.
+Same context handoff; the only manual step is one click (or opening the session, which the app makes you do anyway).
 
 ### How the mirroring works
 

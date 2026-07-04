@@ -49,8 +49,13 @@ desktop app it spawns nothing and prints the pickup steps (nothing outside the a
 desktop session); in tmux it opens a new window; on macOS without tmux it opens a new Terminal
 window; otherwise it prints the exact command to run.
 
-**3. Relay the output** to the user verbatim, then tell them:
-- this session is now safe to `/clear` and move on, and
-- **if the spawner printed pickup steps (desktop app) or couldn't open a window:** open a new
-  session in the same project and run the **`pickup`** skill — it will load this brief and
-  continue. The brief is saved at the path from step 1.
+**3. Hand the user the continuation.**
+- **If the spawner printed pickup steps (desktop app):** check whether a session-spawning tool
+  is available (e.g. `spawn_task` from the desktop harness). If so, call it — title
+  `Pick up handoff: <slug>`, prompt: *"A previous session handed this task off to you. Read the
+  handoff file at `<handoffFile>`, state the task in one line, then execute it."* — and tell the
+  user a one-click chip is waiting. If no such tool exists, relay the spawner's steps: open a
+  new session in this project and run the **`pickup`** skill.
+- **Otherwise** relay the spawner output verbatim (it opened a window or printed the command).
+- Either way, tell the user this session is now safe to `/clear`. The brief stays at the path
+  from step 1, so `pickup` works as a fallback in any new session.
