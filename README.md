@@ -58,7 +58,7 @@ Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a th
 
 **In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you. It picks the best in-app continuation:
 
-- **One-click chip** (when the app exposes a session-spawning tool, and your work is committed): click it and the new session **starts running immediately** — in a fresh worktree, which is why uncommitted work opts out.
+- **One-click chip** (when the app exposes a session-spawning tool, and your work is committed): click it and the new session **starts running immediately**, inherits the origin session's model/effort/permission, appears linked to it in the app ("session launched"), and reports back when it finishes. It runs in a fresh worktree, which is why uncommitted work opts out.
 - **Deep link** (`claude://code/new`): a new session tab opens in the real project directory with the pickup prompt prefilled — press Enter to start (the app re-asks folder access; that consent is per-session and can't be skipped).
 
 Auto-submit from outside the app doesn't exist by design — the app's IPC only accepts it from its own UI, so a malicious URL can never auto-run a prompt. One click or one Enter is the floor. If neither path is available, the fallback is manual: new session (sidebar `+`), then run the **pickup** skill.

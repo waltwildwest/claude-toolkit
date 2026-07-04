@@ -43,8 +43,10 @@ execute it."*
 **In the Claude desktop app** (`$CLAUDE_CODE_ENTRYPOINT` contains `desktop`), pick by state:
 - **If a `spawn_task`-style tool is available AND the task doesn't depend on uncommitted
   changes** (non-git project, or clean/committed tree): call it — title
-  `Pick up handoff: <slug>`, prompt as above. The chip **auto-runs on one click**, but in a
-  fresh worktree, which is why uncommitted work rules it out.
+  `Pick up handoff: <slug>`, prompt as above. The chip **auto-runs on one click** and is the
+  best desktop path: the new session inherits this session's model/effort/permission, shows
+  up linked to this one in the app ("session launched"), and reports back here when it ends.
+  It runs in a fresh worktree, which is why uncommitted work rules it out.
 - **Otherwise** run the spawner below — on desktop it deep-links a new session tab
   (`claude://code/new`) with the prompt prefilled in the real project directory; the user
   presses Enter and re-approves folder access.
@@ -57,8 +59,8 @@ node "${CLAUDE_SKILL_DIR:-$HOME/.claude/skills/handoff}/handoff-spawn.js" --dir 
 
 It reads this session's model + effort (`$CLAUDE_EFFORT`) + permission mode (from the session
 transcript) and launches a new session with them: in tmux a new window; on macOS without tmux
-a new Terminal window; otherwise it prints the exact command to run. (Desktop deep links can't
-carry flags, so desktop continuations use the app's defaults — the brief carries the context.)
+a new Terminal window; otherwise it prints the exact command to run. (Deep links can't carry
+flags, so deep-linked continuations use the app's defaults — the brief carries the context.)
 
 **3. Hand the user the continuation.** Relay what happened (chip waiting / tab opened — press
 Enter / window spawned / command to paste) and tell them this session is now safe to `/clear`.
