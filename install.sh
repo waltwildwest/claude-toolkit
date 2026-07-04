@@ -18,7 +18,7 @@ for dir in "$SRC"/skills/*/; do
 done
 # keep the helper scripts executable
 chmod +x "$SKILLS"/handoff/handoff-spawn.js 2>/dev/null || true
-chmod +x "$SKILLS"/route/route-report.js "$SKILLS"/route/route-cache.js 2>/dev/null || true
+chmod +x "$SKILLS"/route/route-report.js "$SKILLS"/route/route-cache.js "$SKILLS"/route/route-plan.js "$SKILLS"/route/route-detect.js 2>/dev/null || true
 
 # Thin CLI command wrapper (CLI only; desktop uses the skill directly)
 for cmd in "$SRC"/commands/*.md; do
@@ -38,6 +38,13 @@ echo "Done."
 echo "  Terminal:  /handoff  (or ask to 'hand this off to a fresh session')"
 echo "  Desktop:   run the 'handoff' skill; in the new session, run 'pickup'."
 echo "  Routing:   /route <task> to size+dispatch, /route report for the savings math."
+echo ""
+echo "  Optional — smarter activation (the plugin install gets this automatically):"
+echo "    route ships a UserPromptSubmit hook that nudges routing on cost-routable"
+echo "    prompts. Copy-install doesn't auto-load it; to enable, add to ~/.claude/settings.json:"
+echo '      "hooks": { "UserPromptSubmit": [ { "hooks": [ { "type": "command",'
+echo "        \"command\": \"node '$SKILLS/route/route-detect.js'\" } ] } ] }"
+echo "    Silent unless a prompt looks routable. Disable anytime with ROUTE_DETECT=off."
 
 # route's cache and report need a system Node.js; Claude Code does not put node
 # on PATH itself. Warn, don't fail — everything else in this repo works without it.

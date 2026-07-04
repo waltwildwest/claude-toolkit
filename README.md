@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-78%20passing-brightgreen.svg)](./tests/)
+[![tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](./tests/)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
@@ -96,7 +96,7 @@ Reads the most recent brief in `~/.claude/handoffs/`, states the task, and conti
 
 "Just use the best model for everything" is simple and expensive. `route` packages the policy I actually run:
 
-1. **Size before dispatching.** Every delegable task gets a tier: grunt work goes to Haiku, standard implementation to Sonnet, and judgment calls stay with the top model. The skill gives Claude the sizing table and the rules of thumb (including when to give up and promote a task a tier).
+1. **Size before dispatching, relative to the model you're running.** `route-plan` reads your current session model, places it on a cost ladder, and routes work *down* only: grunt work to the cheapest tier, standard work to a mid tier, and reasoning plus the final review stay on *your* model. It never delegates to a model as costly as your own, and if you're already on the cheapest tier it tells you to do the work yourself. So the top model is never locked in or wasted on grunt work — the routing adapts to whatever you've dialed in. The skill adds the sizing rules on top (including when to give up and promote a task a tier).
 2. **Fan out big jobs.** Many independent pieces run in parallel on cheap models; the strong model reviews the merged result. Cheap generation plus expensive review is the whole trade.
 3. **Cache the repeats.** Mechanical work recurs: the same file summarized in two sessions, the same extraction after a `/clear`. `route-cache` stores delegated results locally, keyed by a hash of the instruction plus the exact bytes of the input files — so edits invalidate automatically, renames still hit, and identical work is never paid for twice. It only applies to work whose entire input is instruction + files; anything time-sensitive or judgment-shaped is excluded by design.
 4. **Measure it.** `route-report` reads your local transcripts (nothing leaves your machine), dedupes streamed messages, prices every token at current API rates, and prints your actual cost against **three baselines**: the naive one (top model, every call, no cache), top-model-with-cache (what routing alone saved), and your-mix-without-cache (what caching alone saved).
@@ -123,6 +123,12 @@ Install is the same as handoff: `/plugin install route@claude-toolkit`, or `./in
 
 Prior art, honestly: model routing and content-keyed caching are old ideas that lots of tooling touches (I was routing by hand before I ever packaged this, and other Claude Code kits document similar patterns for API apps). What's mine here is the operational wiring: the sizing contract for live sessions, the cross-session result cache for delegated work, and the three-baseline report. Built from scratch for this repo, MIT.
 
+### Activation — smarter than description-matching
+
+A skill normally fires when Claude *decides* your request matches its description. That's probabilistic (Claude Code's own docs put it around 50–80%). `route` adds a deterministic layer on top: a **`UserPromptSubmit` hook** (`route-detect.js`) that runs on every prompt, does cheap model-free signal detection — wide/parallel jobs (`audit all…`, `for each…`, globs), mechanical grunt work (`reformat`, `extract`, `search`), cost questions (`what's this costing`) — and injects a short nudge to run route when it sees one. It's **silent on everything else** (no context cost), and you disable it anytime with `ROUTE_DETECT=off`.
+
+The honest ceiling: a hook **cannot change the model** (the harness forbids it — only `/model` and launch flags set the session model), so this makes activation *reliable*, not *forced*. It nudges; Claude still decides. The hook approach here is inspired by mature setups like [everything-claude-code](https://github.com/affaan-m/everything-claude-code) (a great free kit, worth installing) — `route` just points a hook at the `UserPromptSubmit` event, the moment a prompt arrives, so routing gets *considered* every time instead of only when Claude happens to match the description. The plugin install wires the hook automatically; the copy install prints the one-line `settings.json` snippet to enable it.
+
 ### `route-cache` CLI
 
 `route-report` and the skill's own steps drive this, but it's a standalone CLI if you want it directly. Storage is local-only, under `~/.claude/route-cache/` — nothing leaves your machine.
@@ -142,10 +148,11 @@ Task text and results always travel through files (`--task-file` / `--result-fil
 ```
 skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI + desktop)
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
-skills/route/     SKILL.md + route-report.js + route-cache.js   sizing policy, cost report, result cache
+skills/route/     SKILL.md + route-plan.js + route-detect.js + route-report.js + route-cache.js   model-aware routing, activation hook, cost report, result cache
 commands/handoff.md · commands/route.md          thin CLI wrappers for install.sh installs
 .claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-tests/handoff.test.sh · tests/route*.test.sh     78 tests (routing matrix, safety, cost math, baselines, cache)
+hooks/hooks.json                                 UserPromptSubmit activation hook (auto-loaded by the plugin)
+tests/handoff.test.sh · tests/route*.test.sh     102 tests (routing, model-aware plan, activation signals, safety, cost math, baselines, cache)
 install.sh · LICENSE
 ```
 

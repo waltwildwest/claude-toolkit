@@ -31,17 +31,32 @@ command, check for it and skip cleanly if it's missing — don't error, tell the
 command -v node >/dev/null || { echo "route: cache/report need a system Node.js on PATH; skipping"; }
 ```
 
-**1. Size the work.** Ask two questions about the task you're delegating:
+**1. Size the work, relative to the model you're running.** Routing is always relative
+to your current model, never to fixed tiers. First read the plan for the model you're on
+— it detects your session model and only ever routes work *down*, never to a model as
+costly as your own:
+
+```bash
+SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"
+command -v node >/dev/null && node "$SKILL_DIR/route-plan.js"
+```
+
+It prints which model takes grunt work, which takes standard work, and confirms that
+reasoning and the final review stay on *your* model. If you're already on the cheapest
+tier it tells you to do the work yourself instead of routing up. Use the tiers it prints
+(the `haiku`/`sonnet` names below are the defaults for a top-tier brain).
+
+Then size each task with two questions:
 
 - *Can I write its acceptance criteria in two sentences?* If not, it isn't delegable at
   any price — keep it in this session. Architecture, ambiguous debugging, and the final
-  review of delegated output always stay here.
-- *Would a careful intern with the files and the instructions get it right?* If yes,
-  dispatch on the cheapest model (`haiku`): searching, reformatting, extracting,
-  collecting excerpts, running commands and reporting output, first drafts from a tight
-  spec. If it needs real implementation skill but the path is clear — multi-file changes
-  from a plan, tests that follow existing patterns, bounded research — use the middle
-  tier (`sonnet`).
+  review of delegated output always stay here, on your model.
+- *Would a careful intern with the files and the instructions get it right?* If yes, it's
+  grunt work — searching, reformatting, extracting, collecting excerpts, running commands
+  and reporting output, first drafts from a tight spec — send it to the plan's grunt tier
+  (`haiku` by default). If it needs real implementation skill but the path is clear —
+  multi-file changes from a plan, tests that follow existing patterns, bounded research —
+  send it to the standard tier (`sonnet` by default).
 
 If a cheap-tier result comes back wrong, do not re-roll the same prompt on the same
 model. Tighten the instructions once, or move up one tier. Wrong twice = do it yourself;

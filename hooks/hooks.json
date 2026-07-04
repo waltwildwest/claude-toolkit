@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/route/route-detect.js\""
+          }
+        ],
+        "description": "route: detect cost-routable prompts (wide/parallel jobs, grunt work, cost questions) and nudge the route skill. Silent on everything else. Disable with ROUTE_DETECT=off."
+      }
+    ]
+  }
+}

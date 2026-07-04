@@ -17,16 +17,27 @@
       "license": "MIT",
       "homepage": "https://github.com/waltwildwest/claude-toolkit",
       "repository": "https://github.com/waltwildwest/claude-toolkit",
-      "keywords": ["handoff", "context", "sessions", "fresh-session", "productivity"],
+      "keywords": [
+        "handoff",
+        "context",
+        "sessions",
+        "fresh-session",
+        "productivity"
+      ],
       "category": "productivity",
-      "skills": ["./skills/handoff", "./skills/pickup"],
-      "commands": ["./commands/handoff.md"]
+      "skills": [
+        "./skills/handoff",
+        "./skills/pickup"
+      ],
+      "commands": [
+        "./commands/handoff.md"
+      ]
     },
     {
       "name": "route",
       "source": "./",
       "strict": false,
-      "version": "2.0.0",
+      "version": "2.1.0",
       "description": "Spend the expensive model only where it earns its price: size delegated work into tiers, reuse identical work from a local result cache, fan big jobs out with a strong-model review, and measure it all with route-report against three honest baselines.",
       "author": {
         "name": "waltwildwest"
@@ -34,10 +45,25 @@
       "license": "MIT",
       "homepage": "https://github.com/waltwildwest/claude-toolkit",
       "repository": "https://github.com/waltwildwest/claude-toolkit",
-      "keywords": ["routing", "cost", "models", "subagents", "fan-out", "savings", "cache", "caching"],
+      "keywords": [
+        "routing",
+        "cost",
+        "models",
+        "subagents",
+        "fan-out",
+        "savings",
+        "cache",
+        "caching",
+        "hooks",
+        "activation"
+      ],
       "category": "productivity",
-      "skills": ["./skills/route"],
-      "commands": ["./commands/route.md"]
+      "skills": [
+        "./skills/route"
+      ],
+      "commands": [
+        "./commands/route.md"
+      ]
     }
   ]
 }
