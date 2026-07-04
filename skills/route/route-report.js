@@ -14,14 +14,29 @@ const CACHE_READ_X = 0.1; // cache hit = 0.1x base input
 const CACHE_W5_X = 1.25;  // 5-minute cache write
 const CACHE_W1H_X = 2;    // 1-hour cache write
 
+// Sonnet 5 intro pricing ($2 in / $10 out) auto-expires 2026-09-01, reverting
+// to standard Sonnet pricing ($3 in / $15 out).
+const SONNET5_STANDARD_FROM = Date.parse('2026-09-01');
+const PRICES_AS_OF = '2026-07-04';
+
+// Clock is injectable via ROUTE_REPORT_NOW so date-dependent pricing (e.g.
+// sonnet5Row below) can be tested deterministically. Defaults to Date.now().
+const NOW_MS = process.env.ROUTE_REPORT_NOW ? Date.parse(process.env.ROUTE_REPORT_NOW) : Date.now();
+
+function sonnet5Row() {
+  return NOW_MS >= SONNET5_STANDARD_FROM
+    ? { match: /sonnet-5/, label: 'Sonnet 5', in: 3, out: 15 }
+    : { match: /sonnet-5/, label: 'Sonnet 5 (intro pricing)', in: 2, out: 10 };
+}
+
 // Ordered: first regex match wins. USD per MTok.
 const PRICING = [
   { match: /fable-5|mythos-5/, label: 'Fable/Mythos 5', in: 10, out: 50 },
   { match: /opus-4-[5-9]/, label: 'Opus 4.5+', in: 5, out: 25 },
   { match: /opus/, label: 'Opus 4.1 and earlier', in: 15, out: 75 },
-  { match: /sonnet-5/, label: 'Sonnet 5 (intro pricing)', in: 2, out: 10 },
+  sonnet5Row(),
   { match: /sonnet/, label: 'Sonnet 4.x', in: 3, out: 15 },
-  { match: /haiku-3-5/, label: 'Haiku 3.5', in: 0.8, out: 4 },
+  { match: /haiku-3-5|3-5-haiku/, label: 'Haiku 3.5', in: 0.8, out: 4 },
   { match: /haiku/, label: 'Haiku 4.5', in: 1, out: 5 },
 ];
 
@@ -42,18 +57,32 @@ function parseArgs(argv) {
   return args;
 }
 
-function findTranscripts(root, projectFilter) {
+function findTranscripts(root, projectFilter, cutoffMs) {
   if (!fs.existsSync(root)) return [];
   const files = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.jsonl')) files.push(full);
+      else if (entry.name.endsWith('.jsonl')) {
+        // A file not modified since the cutoff cannot contain newer entries.
+        if (cutoffMs) {
+          let stat;
+          try { stat = fs.statSync(full); } catch { continue; }
+          if (stat.mtimeMs < cutoffMs) continue;
+        }
+        files.push(full);
+      }
     }
   };
   walk(root);
-  return projectFilter ? files.filter((f) => f.includes(projectFilter)) : files;
+  if (!projectFilter) return files;
+  const norm = (s) => s.replace(/[^A-Za-z0-9-]/g, '-');
+  const normFilter = norm(projectFilter);
+  return files.filter((f) => {
+    const rel = path.relative(root, f);
+    return rel.includes(projectFilter) || rel.includes(normFilter);
+  });
 }
 
 // Streaming appends several lines per assistant message; the last line for a
@@ -63,14 +92,18 @@ function collectUsage(files, cutoffMs) {
   let lineKey = 0;
   for (const file of files) {
     let text;
-    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    try { text = fs.readFileSync(file, 'utf8'); } catch (err) {
+      console.error(`route-report: skipped ${file}: ${err.code || err.message}`);
+      continue;
+    }
     for (const line of text.split('\n')) {
       if (!line.includes('"usage"')) continue;
       let entry;
       try { entry = JSON.parse(line); } catch { continue; }
       const msg = entry && entry.message;
-      if (!msg || !msg.usage || !msg.model || msg.model.startsWith('<')) continue;
-      if (cutoffMs && entry.timestamp && Date.parse(entry.timestamp) < cutoffMs) continue;
+      if (!msg || !msg.usage || typeof msg.model !== 'string' || msg.model.startsWith('<')) continue;
+      const ts = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+      if (cutoffMs && !(ts >= cutoffMs)) continue;
       lineKey += 1;
       const key = msg.id || entry.requestId || `line-${file}-${lineKey}`;
       byId.set(key, { model: msg.model, usage: msg.usage });
@@ -121,7 +154,7 @@ function pickBaseline(buckets, requested) {
     return p;
   }
   const present = [...buckets.values()].map((b) => b.price).filter(Boolean);
-  if (present.length === 0) return null;
+  if (present.length === 0) return PRICING[0];
   return present.reduce((top, p) => (p.in > top.in ? p : top));
 }
 
@@ -162,6 +195,9 @@ function printHuman(r, baselinePrice, opts) {
   console.log(`  same top model, with cache      ${fmtUSD(r.baselines.topCached)}   routing alone saved ${fmtPct(r.savingsPct.vsTopCached)}`);
   console.log(`  your mix, cache off             ${fmtUSD(r.baselines.mixNoCache)}   caching alone saved ${fmtPct(r.savingsPct.vsMixNoCache)}`);
   console.log('\n  The headline number is the naive baseline. The other two keep it honest.');
+  console.log(`  (token prices as of ${PRICES_AS_OF}; Sonnet 5 intro pricing auto-expires 2026-09-01)`);
+  console.log('  Not counted: server tool fees (e.g. web search billed per request).');
+  console.log('  Fable-class tokenizers emit ~30% more tokens for the same text, so the naive baseline is understated; savings shown are conservative.');
 }
 
 function main() {
@@ -171,11 +207,23 @@ function main() {
     return 0;
   }
   const root = path.join(os.homedir(), '.claude', 'projects');
-  const files = findTranscripts(root, args.project);
-  const cutoff = args.days ? Date.now() - args.days * 86400e3 : null;
+  const cutoff = args.days ? NOW_MS - args.days * 86400e3 : null;
+  const files = findTranscripts(root, args.project, cutoff);
   const records = collectUsage(files, cutoff);
   if (records.length === 0) {
-    console.log('route-report: no transcript usage found under ~/.claude/projects for that scope.');
+    if (args.json) {
+      console.log(JSON.stringify({
+        scope: { days: args.days, project: args.project },
+        baseline: null,
+        pricesAsOf: PRICES_AS_OF,
+        perModel: [],
+        actualUSD: 0,
+        baselinesUSD: { naiveNoCache: 0, topModelWithCache: 0, yourMixNoCache: 0 },
+        savingsPct: { vsNaive: 0, routingAlone: 0, cachingAlone: 0 },
+      }, null, 2));
+    } else {
+      console.error('route-report: no transcript usage found under ~/.claude/projects for that scope.');
+    }
     return 0;
   }
   const buckets = bucketTokens(records);
@@ -185,6 +233,7 @@ function main() {
     console.log(JSON.stringify({
       scope: { days: args.days, project: args.project },
       baseline: baselinePrice.label,
+      pricesAsOf: PRICES_AS_OF,
       perModel: r.rows.map(({ label, calls, tokens, cost }) => ({ label, calls, tokens, costUSD: Number(cost.toFixed(4)) })),
       actualUSD: Number(r.actual.toFixed(4)),
       baselinesUSD: {
@@ -204,7 +253,7 @@ function main() {
   return 0;
 }
 
-try { process.exit(main()); } catch (err) {
+try { process.exitCode = main(); } catch (err) {
   console.error(`route-report: ${err.message}`);
-  process.exit(1);
+  process.exitCode = 1;
 }

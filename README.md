@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-34%20passing-brightgreen.svg)](./tests/handoff.test.sh)
+[![tests](https://img.shields.io/badge/tests-78%20passing-brightgreen.svg)](./tests/)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
@@ -48,9 +48,9 @@ git clone https://github.com/whomsfun-ai/claude-toolkit
 cd claude-toolkit && ./install.sh
 ```
 
-Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a thin `/handoff` **command** into `~/.claude/commands/`. To uninstall, delete those.
+Installs the `handoff`, `pickup`, and `route` **skills** into `~/.claude/skills/` and the thin `/handoff` and `/route` **commands** into `~/.claude/commands/`. To uninstall, delete those.
 
-> **Run `install.sh` yourself — don't ask Claude to.** If you ask Claude Code to run the installer for you in auto mode, its permission classifier will refuse: an agent writing executable code into `~/.claude/` is exactly the kind of action it's designed to hand back to a human. That's Claude's safety model working, not a bug in the toolkit — and it's why the plugin path exists. The installer is ~30 lines; read it, then run it.
+> **Run `install.sh` yourself — don't ask Claude to.** If you ask Claude Code to run the installer for you in auto mode, its permission classifier will refuse: an agent writing executable code into `~/.claude/` is exactly the kind of action it's designed to hand back to a human. That's Claude's safety model working, not a bug in the toolkit — and it's why the plugin path exists. The installer is 49 lines; read it, then run it.
 
 ### Use it
 
@@ -98,29 +98,54 @@ Reads the most recent brief in `~/.claude/handoffs/`, states the task, and conti
 
 1. **Size before dispatching.** Every delegable task gets a tier: grunt work goes to Haiku, standard implementation to Sonnet, and judgment calls stay with the top model. The skill gives Claude the sizing table and the rules of thumb (including when to give up and promote a task a tier).
 2. **Fan out big jobs.** Many independent pieces run in parallel on cheap models; the strong model reviews the merged result. Cheap generation plus expensive review is the whole trade.
-3. **Measure it.** `route-report` reads your local transcripts (nothing leaves your machine), dedupes streamed messages, prices every token at current API rates, and prints your actual cost against **three baselines**: the naive one (top model, every call, no cache), top-model-with-cache (what routing alone saved), and your-mix-without-cache (what caching alone saved).
+3. **Cache the repeats.** Mechanical work recurs: the same file summarized in two sessions, the same extraction after a `/clear`. `route-cache` stores delegated results locally, keyed by a hash of the instruction plus the exact bytes of the input files — so edits invalidate automatically, renames still hit, and identical work is never paid for twice. It only applies to work whose entire input is instruction + files; anything time-sensitive or judgment-shaped is excluded by design.
+4. **Measure it.** `route-report` reads your local transcripts (nothing leaves your machine), dedupes streamed messages, prices every token at current API rates, and prints your actual cost against **three baselines**: the naive one (top model, every call, no cache), top-model-with-cache (what routing alone saved), and your-mix-without-cache (what caching alone saved).
 
 ```console
 $ /route report
-  actual cost                     $6540.79
-  naive baseline (no cache)       $63448.95   you saved 89.7%
-  same top model, with cache      $10584.14   routing alone saved 38.2%
-  your mix, cache off             $40727.65   caching alone saved 83.9%
+  actual cost                     $6500.00
+  naive baseline (no cache)       $63400.00   you saved 89.7%
+  same top model, with cache      $10600.00   routing alone saved 38.2%
+  your mix, cache off             $41400.00   caching alone saved 83.7%
+
+  The headline number is the naive baseline. The other two keep it honest.
+  (token prices as of 2026-07-04; Sonnet 5 intro pricing auto-expires 2026-09-01)
+  Not counted: server tool fees (e.g. web search billed per request).
+  Fable-class tokenizers emit ~30% more tokens for the same text, so the naive
+  baseline is understated; savings shown are conservative.
 ```
 
-That output is the point: a savings number without its baseline is marketing. The report prints the flattering number and the honest ones in the same breath. (If you're on a subscription rather than the API, the dollars are notional at API rates — the percentages are what matter.)
+(Numbers above are illustrative, not a real measurement — your own `/route report` prints your actual figures.) That output is the point: a savings number without its baseline, its pricing date, and its blind spots is marketing. The report prints the flattering number and the honest ones — plus what it isn't counting — in the same breath. (If you're on a subscription rather than the API, the dollars are notional at API rates — the percentages are what matter.)
+
+As a plugin install this is `/route:route`, not bare `/route` — same namespacing as `/handoff:handoff` above; bare `/route` only exists via `./install.sh`. Plain-language requests ("delegate this", "what does this cost") trigger the skill either way.
 
 Install is the same as handoff: `/plugin install route@claude-toolkit`, or `./install.sh` puts the `route` skill and the `/route` command in place. Use `/route <task>` to size and dispatch a task, `/route report` for the math.
+
+Prior art, honestly: model routing and content-keyed caching are old ideas that lots of tooling touches (I was routing by hand before I ever packaged this, and other Claude Code kits document similar patterns for API apps). What's mine here is the operational wiring: the sizing contract for live sessions, the cross-session result cache for delegated work, and the three-baseline report. Built from scratch for this repo, MIT.
+
+### `route-cache` CLI
+
+`route-report` and the skill's own steps drive this, but it's a standalone CLI if you want it directly. Storage is local-only, under `~/.claude/route-cache/` — nothing leaves your machine.
+
+| Subcommand | Flags | Does |
+|---|---|---|
+| `key` | `--task-file <p>` (or `--task "<text>"`), `--file <p>` (repeatable) | Prints the cache key: a hash of the normalized task text plus the exact bytes of every `--file`. |
+| `get` | `<key>` | Prints the cached result to stdout on a hit (exit 1 on miss); age and source model go to stderr. |
+| `put` | `<key> --task-file <p> --model <m> --result-file <p>` | Stores a result, tagged with the model that produced it. |
+| `stats` | — | Prints entry count, total size, and total hits. |
+| `prune` | `--days N` (default 30), `--max-mb N` | Deletes entries older than N days, then trims further to a size cap if given. |
+
+Task text and results always travel through files (`--task-file` / `--result-file`), never shell arguments, so arbitrary prompt content — backticks, `$(...)`, quotes — is never interpolated into a command line.
 
 ## Repository layout
 
 ```
 skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI + desktop)
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
-skills/route/     SKILL.md + route-report.js     sizing policy + transcript cost report
+skills/route/     SKILL.md + route-report.js + route-cache.js   sizing policy, cost report, result cache
 commands/handoff.md · commands/route.md          thin CLI wrappers for install.sh installs
 .claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-tests/handoff.test.sh · tests/route.test.sh      34 tests (routing matrix, safety, cost math, baselines)
+tests/handoff.test.sh · tests/route*.test.sh     78 tests (routing matrix, safety, cost math, baselines, cache)
 install.sh · LICENSE
 ```
 
@@ -128,12 +153,12 @@ The same `skills/` folders back both install paths — the marketplace manifest 
 
 ## Requirements
 
-Node (bundled with Claude Code) and the `claude` CLI. tmux is optional — with it, handoffs open a new window seamlessly; without it, macOS opens a new Terminal, and everywhere else you get the exact command to paste.
+The `claude` CLI. `handoff` and `pickup` need nothing else. `route`'s cache and report additionally need a system Node.js (any recent version) — **Claude Code does not put `node` on PATH itself**, so this has to be installed separately, the same way you'd install any other CLI tool. If `node` isn't found, `route` degrades gracefully: it skips the cache and report steps rather than failing. tmux is optional — with it, handoffs open a new window seamlessly; without it, macOS opens a new Terminal, and everywhere else you get the exact command to paste.
 
 ## Tests
 
 ```bash
-bash tests/handoff.test.sh && bash tests/route.test.sh
+for t in tests/*.test.sh; do bash "$t"; done
 ```
 
 Covers mirror detection, shell-injection safety, error handling, and the full routing matrix — desktop deep link (success, failure fallback, precedence over tmux), macOS Terminal.app (success and paste fallback), simulated Linux, and real tmux window creation on a private socket. Window-opening binaries are shimmed onto `PATH`, so the suite never opens anything on your screen.

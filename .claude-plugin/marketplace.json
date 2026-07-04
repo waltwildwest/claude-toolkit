@@ -20,23 +20,25 @@
       "repository": "https://github.com/whomsfun-ai/claude-toolkit",
       "keywords": ["handoff", "context", "sessions", "fresh-session", "productivity"],
       "category": "productivity",
-      "skills": ["./skills/handoff", "./skills/pickup"]
+      "skills": ["./skills/handoff", "./skills/pickup"],
+      "commands": ["./commands/handoff.md"]
     },
     {
       "name": "route",
       "source": "./",
       "strict": false,
-      "version": "1.0.0",
-      "description": "Cost-aware model routing for delegated work: size tasks into tiers, dispatch on the cheapest capable model, fan big jobs out with a strong-model review. Includes route-report, which prices your real transcripts against three honest baselines.",
+      "version": "2.0.0",
+      "description": "Spend the expensive model only where it earns its price: size delegated work into tiers, reuse identical work from a local result cache, fan big jobs out with a strong-model review, and measure it all with route-report against three honest baselines.",
       "author": {
         "name": "whomsfun"
       },
       "license": "MIT",
       "homepage": "https://github.com/whomsfun-ai/claude-toolkit",
       "repository": "https://github.com/whomsfun-ai/claude-toolkit",
-      "keywords": ["routing", "cost", "models", "subagents", "fan-out", "savings"],
+      "keywords": ["routing", "cost", "models", "subagents", "fan-out", "savings", "cache", "caching"],
       "category": "productivity",
-      "skills": ["./skills/route"]
+      "skills": ["./skills/route"],
+      "commands": ["./commands/route.md"]
     }
   ]
 }
