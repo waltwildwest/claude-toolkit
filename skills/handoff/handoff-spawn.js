@@ -85,11 +85,17 @@ const claudeCmd = ['claude', ...flags, ...(HANDOFF_PROMPT ? [shq(HANDOFF_PROMPT)
 
 const mirror = `model=${model || '(default)'}  effort=${effort || '(default)'}  permission=${usePerm || '(default)'}`;
 
+// Desktop deep link: opens a NEW session tab in the desktop app with the pickup
+// prompt prefilled and the folder selected. The app has no auto-submit route, so
+// the user presses Enter (and re-approves folder access) — one action, in-app.
+const deepLink = `claude://code/new?q=${encodeURIComponent(HANDOFF_PROMPT || 'Continue the previous task.')}${dir ? `&folder=${encodeURIComponent(dir)}` : ''}`;
+
 if (dryRun) {
   console.log('handoff-spawn DRY RUN');
   console.log('  mirrored:', mirror);
   console.log('  dir:     ', dir || process.cwd(), '| tmux:', Boolean(process.env.TMUX), '| desktop:', isDesktop);
   console.log('  command: ', claudeCmd);
+  if (isDesktop) console.log('  deeplink:', deepLink);
   process.exit(0);
 }
 
@@ -101,11 +107,21 @@ function printFallback() {
 }
 
 if (isDesktop) {
-  // Claude desktop app: there is no window we can open for the user. The brief is
-  // written; the pickup skill in a fresh session is the continuation path.
-  console.log(`Desktop app detected — brief saved, nothing spawned (${mirror}).`);
-  console.log('To continue: open a new session in this project (sidebar +) and run the pickup skill.');
-  console.log(`Prefer a terminal instead? Paste:\n\n${fullCmd}`);
+  // Claude desktop app: open a new session tab via the claude:// deep link. Flags
+  // can't ride along (the deep link takes only prompt + folder), so the new session
+  // runs on the app's own defaults; the brief carries the context.
+  const opener = process.platform === 'darwin' ? ['open', [deepLink]]
+    : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', deepLink]]
+    : null;
+  const r = opener ? spawnSync(opener[0], opener[1]) : { status: 1 };
+  if (r.status === 0) {
+    console.log('Desktop app: opened a new session tab with the pickup prompt prefilled and the folder selected.');
+    console.log('Press Enter there to start it (re-approve folder access if asked). Safe to /clear here and move on.');
+  } else {
+    console.log(`Desktop app detected — brief saved, nothing spawned (${mirror}).`);
+    console.log('To continue: open a new session in this project (sidebar +) and run the pickup skill.');
+    console.log(`Prefer a terminal instead? Paste:\n\n${fullCmd}`);
+  }
 } else if (process.env.TMUX) {
   // Seamless: a new background window in the current tmux session.
   const r = spawnSync('tmux', ['new-window', '-d', '-P', '-F', '#{pane_id}', ...(dir ? ['-c', dir] : [])], { encoding: 'utf8' });

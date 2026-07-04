@@ -36,26 +36,31 @@ Run `mkdir -p ~/.claude/handoffs` first. Structure:
 Be specific: paste short code excerpts rather than "look at the auth module." The new session
 has zero memory of this conversation.
 
-**2. Spawn the mirrored session.** Run the spawner bundled with this skill (it locates itself, so
-it works wherever the skill is installed):
+**2. Spawn the continuation.** The pickup prompt is always: *"A previous session handed this
+task off to you. Read the handoff file at `<handoffFile>`, state the task in one line, then
+execute it."*
+
+**In the Claude desktop app** (`$CLAUDE_CODE_ENTRYPOINT` contains `desktop`), pick by state:
+- **If a `spawn_task`-style tool is available AND the task doesn't depend on uncommitted
+  changes** (non-git project, or clean/committed tree): call it — title
+  `Pick up handoff: <slug>`, prompt as above. The chip **auto-runs on one click**, but in a
+  fresh worktree, which is why uncommitted work rules it out.
+- **Otherwise** run the spawner below — on desktop it deep-links a new session tab
+  (`claude://code/new`) with the prompt prefilled in the real project directory; the user
+  presses Enter and re-approves folder access.
+
+**Everywhere else** run the spawner:
 
 ```bash
 node "${CLAUDE_SKILL_DIR:-$HOME/.claude/skills/handoff}/handoff-spawn.js" --dir <projectDir> --handoff <handoffFile>
 ```
 
 It reads this session's model + effort (`$CLAUDE_EFFORT`) + permission mode (from the session
-transcript) and launches a new session with them. It routes by where you are: in the Claude
-desktop app it spawns nothing and prints the pickup steps (nothing outside the app can open a
-desktop session); in tmux it opens a new window; on macOS without tmux it opens a new Terminal
-window; otherwise it prints the exact command to run.
+transcript) and launches a new session with them: in tmux a new window; on macOS without tmux
+a new Terminal window; otherwise it prints the exact command to run. (Desktop deep links can't
+carry flags, so desktop continuations use the app's defaults — the brief carries the context.)
 
-**3. Hand the user the continuation.**
-- **If the spawner printed pickup steps (desktop app):** check whether a session-spawning tool
-  is available (e.g. `spawn_task` from the desktop harness). If so, call it — title
-  `Pick up handoff: <slug>`, prompt: *"A previous session handed this task off to you. Read the
-  handoff file at `<handoffFile>`, state the task in one line, then execute it."* — and tell the
-  user a one-click chip is waiting. If no such tool exists, relay the spawner's steps: open a
-  new session in this project and run the **`pickup`** skill.
-- **Otherwise** relay the spawner output verbatim (it opened a window or printed the command).
-- Either way, tell the user this session is now safe to `/clear`. The brief stays at the path
-  from step 1, so `pickup` works as a fallback in any new session.
+**3. Hand the user the continuation.** Relay what happened (chip waiting / tab opened — press
+Enter / window spawned / command to paste) and tell them this session is now safe to `/clear`.
+The brief stays at the path from step 1, so the **`pickup`** skill works as a fallback in any
+new session.

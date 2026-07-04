@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-15%20passing-brightgreen.svg)](./tests/handoff.test.sh)
+[![tests](https://img.shields.io/badge/tests-17%20passing-brightgreen.svg)](./tests/handoff.test.sh)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
@@ -56,13 +56,12 @@ Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a th
 
 **In the terminal** — run `/handoff` (or `/handoff:handoff` if you installed the plugin; or `/handoff <the next task>`, or just ask to "hand this off to a fresh session"). It writes the brief and opens a new mirrored session automatically: a new tmux window, or a new Terminal window on macOS, or it prints the exact command to paste if neither is available.
 
-**In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you. When the app exposes a session-spawning tool (recent desktop builds do), the skill uses it: you get a **one-click chip** that opens the new session with the brief already loaded. Otherwise the flow is:
+**In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you. It picks the best in-app continuation:
 
-1. run the **handoff** skill — it writes the brief and prints these steps;
-2. open a new session in the same project (sidebar `+`);
-3. run the **pickup** skill — it loads the brief and continues.
+- **One-click chip** (when the app exposes a session-spawning tool, and your work is committed): click it and the new session **starts running immediately** — in a fresh worktree, which is why uncommitted work opts out.
+- **Deep link** (`claude://code/new`): a new session tab opens in the real project directory with the pickup prompt prefilled — press Enter to start (the app re-asks folder access; that consent is per-session and can't be skipped).
 
-Same context handoff; the only manual step is one click (or opening the session, which the app makes you do anyway).
+Auto-submit from outside the app doesn't exist by design — the app's IPC only accepts it from its own UI, so a malicious URL can never auto-run a prompt. One click or one Enter is the floor. If neither path is available, the fallback is manual: new session (sidebar `+`), then run the **pickup** skill.
 
 ### How the mirroring works
 
@@ -92,7 +91,7 @@ skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI +
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
 commands/handoff.md                              thin /handoff wrapper for install.sh installs
 .claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-tests/handoff.test.sh                            15 tests (detection, routing, safety, tmux, live pickup)
+tests/handoff.test.sh                            17 tests (detection, routing, deep link, safety, tmux)
 install.sh · LICENSE
 ```
 

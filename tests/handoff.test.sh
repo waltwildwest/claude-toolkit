@@ -80,11 +80,29 @@ OUT=$(printf '' | dry s11 "" --dir /no/such/dir/xyz --handoff "$HF" --dry-run); 
 OUT=$(printf '' | dry s12 "" --dir /tmp --handoff /tmp/nope-not-here.md --dry-run); rc=$?
 { [ $rc -ne 0 ] && has "$OUT" "handoff file not found"; } && ok "missing handoff file errors" || no "missing handoff" "$OUT (rc=$rc)"
 
-# 13. desktop app -> spawns nothing, prints pickup steps (and wins over TMUX)
-OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=claude-desktop TMUX=/tmp/fake,1,1 node "$SPAWN" --dir /tmp --handoff "$HF" 2>&1); rc=$?
-{ [ $rc -eq 0 ] && has "$OUT" "Desktop app detected" && has "$OUT" "pickup" && ! has "$OUT" "tmux window"; } && ok "desktop -> pickup steps, no spawn (wins over TMUX)" || no "desktop routing" "$OUT (rc=$rc)"
+# 13/14. desktop app -> claude://code/new deep link; on failure fall back to pickup steps.
+# `open` is shimmed onto PATH so nothing real launches (darwin-only code path).
+if [ "$(uname)" = "Darwin" ]; then
+  SHIM="$(mktemp -d)"; MARK="$SHIM/opened.url"
+  printf '#!/bin/sh\necho "$@" > "%s"\nexit 0\n' "$MARK" > "$SHIM/open"; chmod +x "$SHIM/open"
+  OUT=$(env PATH="$SHIM:$PATH" HOME=/tmp CLAUDE_CODE_ENTRYPOINT=claude-desktop TMUX=/tmp/fake,1,1 node "$SPAWN" --dir /tmp --handoff "$HF" 2>&1); rc=$?
+  URL="$(cat "$MARK" 2>/dev/null)"
+  { [ $rc -eq 0 ] && has "$OUT" "new session tab" && ! has "$OUT" "tmux window" && has "$URL" "claude://code/new?q=" && has "$URL" "folder=%2Ftmp"; } \
+    && ok "desktop -> deep link opens session tab (wins over TMUX)" || no "desktop deep link" "$OUT | url=$URL (rc=$rc)"
 
-# 14. terminal CLI entrypoint is NOT treated as desktop
+  printf '#!/bin/sh\nexit 1\n' > "$SHIM/open"; chmod +x "$SHIM/open"
+  OUT=$(env PATH="$SHIM:$PATH" HOME=/tmp CLAUDE_CODE_ENTRYPOINT=claude-desktop node "$SPAWN" --dir /tmp --handoff "$HF" 2>&1); rc=$?
+  { [ $rc -eq 0 ] && has "$OUT" "Desktop app detected" && has "$OUT" "pickup"; } && ok "deep link fails -> pickup fallback" || no "deep link fallback" "$OUT (rc=$rc)"
+  rm -rf "$SHIM"
+else
+  echo "  SKIP  desktop deep-link tests (darwin-only branch)"
+fi
+
+# 15. dry-run in desktop mode shows the deep link
+OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=claude-desktop node "$SPAWN" --dir /tmp --handoff "$HF" --dry-run 2>&1)
+{ has "$OUT" "desktop: true" && has "$OUT" "deeplink: claude://code/new?q="; } && ok "dry-run shows desktop deep link" || no "dry-run deeplink" "$OUT"
+
+# 16. terminal CLI entrypoint is NOT treated as desktop
 OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=cli node "$SPAWN" --dir /tmp --handoff "$HF" --dry-run 2>&1)
 has "$OUT" "desktop: false" && ok "cli entrypoint -> not desktop" || no "cli entrypoint" "$OUT"
 
