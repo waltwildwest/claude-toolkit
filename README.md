@@ -1,8 +1,8 @@
 # claude-toolkit
 
 Small, standalone tools for [Claude Code](https://claude.com/claude-code) that I actually use
-every day. Each one is a single command you can drop into your setup and try in under a minute.
-No framework, no lock-in. Steal the ones you like.
+every day. Each installs in under a minute and works in **both the CLI and the Claude desktop
+app**. No framework, no lock-in. Steal the ones you like.
 
 These are lightweight cuts of tools that live in my own cockpit. They work on their own.
 
@@ -33,15 +33,16 @@ git clone https://github.com/whomsfun-ai/claude-toolkit
 cd claude-toolkit && ./install.sh
 ```
 
-Or copy the two files by hand:
+That installs two skills (`handoff`, `pickup`) into `~/.claude/skills/` and a thin `/handoff`
+command into `~/.claude/commands/`.
 
-```bash
-mkdir -p ~/.claude/commands/lib
-cp commands/handoff.md      ~/.claude/commands/
-cp lib/handoff-spawn.js     ~/.claude/commands/lib/
-```
+**In the terminal:** run `/handoff` (or just ask to "hand this off to a fresh session"). It
+writes the brief and opens a new, mirrored session automatically.
 
-Then, in any Claude Code session: `/handoff` (or `/handoff <the next task>`).
+**In the desktop app** (which supports skills, but not custom commands or auto-spawning a
+session): run the **handoff** skill — it writes the brief. Then open a new session in the same
+project and run the **pickup** skill to load it and continue. Same context handoff; the only
+manual step is opening the session, which the app makes you do anyway.
 
 ### How the mirroring works
 
