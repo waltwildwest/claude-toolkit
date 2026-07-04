@@ -2,8 +2,7 @@
   "name": "claude-toolkit",
   "description": "Small, honest tools for Claude Code that work in both the CLI and the desktop app.",
   "owner": {
-    "name": "whomsfun",
-    "email": "whomsfun@gmail.com"
+    "name": "waltwildwest"
   },
   "plugins": [
     {
@@ -13,11 +12,11 @@
       "version": "1.2.1",
       "description": "Hand a task off to a fresh session that mirrors your model, effort and permission mode. Includes the pickup skill for continuing from a brief in the desktop app.",
       "author": {
-        "name": "whomsfun"
+        "name": "waltwildwest"
       },
       "license": "MIT",
-      "homepage": "https://github.com/whomsfun-ai/claude-toolkit",
-      "repository": "https://github.com/whomsfun-ai/claude-toolkit",
+      "homepage": "https://github.com/waltwildwest/claude-toolkit",
+      "repository": "https://github.com/waltwildwest/claude-toolkit",
       "keywords": ["handoff", "context", "sessions", "fresh-session", "productivity"],
       "category": "productivity",
       "skills": ["./skills/handoff", "./skills/pickup"],
@@ -30,11 +29,11 @@
       "version": "2.0.0",
       "description": "Spend the expensive model only where it earns its price: size delegated work into tiers, reuse identical work from a local result cache, fan big jobs out with a strong-model review, and measure it all with route-report against three honest baselines.",
       "author": {
-        "name": "whomsfun"
+        "name": "waltwildwest"
       },
       "license": "MIT",
-      "homepage": "https://github.com/whomsfun-ai/claude-toolkit",
-      "repository": "https://github.com/whomsfun-ai/claude-toolkit",
+      "homepage": "https://github.com/waltwildwest/claude-toolkit",
+      "repository": "https://github.com/waltwildwest/claude-toolkit",
       "keywords": ["routing", "cost", "models", "subagents", "fan-out", "savings", "cache", "caching"],
       "category": "productivity",
       "skills": ["./skills/route"],

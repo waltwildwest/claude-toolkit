@@ -35,7 +35,7 @@ Switch to it with your tmux window keys. Safe to /clear here and move on.
 **Option A — as a plugin (recommended).** From inside any Claude Code session:
 
 ```
-/plugin marketplace add whomsfun-ai/claude-toolkit
+/plugin marketplace add waltwildwest/claude-toolkit
 /plugin install handoff@claude-toolkit
 ```
 
@@ -44,7 +44,7 @@ That installs both skills (`handoff` + `pickup`) through Claude Code's own plugi
 **Option B — copy the files.** In your own terminal:
 
 ```bash
-git clone https://github.com/whomsfun-ai/claude-toolkit
+git clone https://github.com/waltwildwest/claude-toolkit
 cd claude-toolkit && ./install.sh
 ```
 
