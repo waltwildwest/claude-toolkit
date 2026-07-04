@@ -44,11 +44,13 @@ node "${CLAUDE_SKILL_DIR:-$HOME/.claude/skills/handoff}/handoff-spawn.js" --dir 
 ```
 
 It reads this session's model + effort (`$CLAUDE_EFFORT`) + permission mode (from the session
-transcript) and launches a new session with them. In tmux it opens a new window; on macOS
-without tmux it opens a new Terminal window; otherwise it prints the exact command to run.
+transcript) and launches a new session with them. It routes by where you are: in the Claude
+desktop app it spawns nothing and prints the pickup steps (nothing outside the app can open a
+desktop session); in tmux it opens a new window; on macOS without tmux it opens a new Terminal
+window; otherwise it prints the exact command to run.
 
 **3. Relay the output** to the user verbatim, then tell them:
 - this session is now safe to `/clear` and move on, and
-- **if the spawn couldn't open a window (e.g. you're in the Claude desktop app):** open a new
+- **if the spawner printed pickup steps (desktop app) or couldn't open a window:** open a new
   session in the same project and run the **`pickup`** skill — it will load this brief and
   continue. The brief is saved at the path from step 1.

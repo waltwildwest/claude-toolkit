@@ -10,7 +10,7 @@
       "name": "handoff",
       "source": "./",
       "strict": false,
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Hand a task off to a fresh session that mirrors your model, effort and permission mode. Includes the pickup skill for continuing from a brief in the desktop app.",
       "author": {
         "name": "whomsfun"

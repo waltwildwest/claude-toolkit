@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-13%20passing-brightgreen.svg)](./tests/handoff.test.sh)
+[![tests](https://img.shields.io/badge/tests-15%20passing-brightgreen.svg)](./tests/handoff.test.sh)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
@@ -56,9 +56,9 @@ Installs the `handoff` and `pickup` **skills** into `~/.claude/skills/` and a th
 
 **In the terminal** — run `/handoff` (or `/handoff:handoff` if you installed the plugin; or `/handoff <the next task>`, or just ask to "hand this off to a fresh session"). It writes the brief and opens a new mirrored session automatically: a new tmux window, or a new Terminal window on macOS, or it prints the exact command to paste if neither is available.
 
-**In the desktop app** — the desktop app supports skills but not custom commands or auto-spawning a session, so:
+**In the desktop app** — the spawner detects it's running inside the desktop app (`CLAUDE_CODE_ENTRYPOINT`) and won't pop a stray Terminal at you; nothing outside the app can open a desktop session, so the flow is:
 
-1. run the **handoff** skill — it writes the brief;
+1. run the **handoff** skill — it writes the brief and prints these steps;
 2. open a new session in the same project (sidebar `+`);
 3. run the **pickup** skill — it loads the brief and continues.
 
@@ -92,7 +92,7 @@ skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI +
 skills/pickup/    SKILL.md                       loads the latest brief in a new session
 commands/handoff.md                              thin /handoff wrapper for install.sh installs
 .claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-tests/handoff.test.sh                            13 tests (detection, safety, tmux, live pickup)
+tests/handoff.test.sh                            15 tests (detection, routing, safety, tmux, live pickup)
 install.sh · LICENSE
 ```
 

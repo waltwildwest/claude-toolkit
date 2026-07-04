@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // handoff-spawn.js — spawn a fresh `claude` session that MIRRORS the current
 // session's model, effort, and permission mode, and picks up a handoff file.
-// Standalone: needs only node + the `claude` CLI. Uses tmux if present; otherwise
-// prints the exact command to paste into a new terminal. Never touches ~/.claude.
+// Standalone: needs only node + the `claude` CLI. Never touches ~/.claude.
 //
 //   node handoff-spawn.js --dir <projectDir> --handoff <handoffFile> [--dry-run]
 //
@@ -10,6 +9,10 @@
 //   effort         <- $CLAUDE_EFFORT
 //   model, permMode <- last values in the current session transcript
 //                      (~/.claude/projects/<enc-cwd>/$CLAUDE_CODE_SESSION_ID.jsonl)
+//
+// Routing (in order): Claude desktop app -> nothing to spawn, print the pickup
+// steps; inside tmux -> new background window; macOS terminal -> new Terminal
+// window; anything else -> print the exact command to paste.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,6 +35,9 @@ if (handoffFile && !fs.existsSync(handoffFile)) { console.error(`handoff-spawn: 
 // ---- detect the current session's settings ----
 const effort = process.env.CLAUDE_EFFORT || null;
 const sessionId = process.env.CLAUDE_CODE_SESSION_ID || null;
+// The desktop app can't open its own sessions from the outside; spawning a
+// terminal from inside it is a misroute (the user is not looking at a terminal).
+const isDesktop = /desktop/i.test(process.env.CLAUDE_CODE_ENTRYPOINT || '');
 
 function findTranscript(sid) {
   if (!sid) return null;
@@ -82,7 +88,7 @@ const mirror = `model=${model || '(default)'}  effort=${effort || '(default)'}  
 if (dryRun) {
   console.log('handoff-spawn DRY RUN');
   console.log('  mirrored:', mirror);
-  console.log('  dir:     ', dir || process.cwd(), '| tmux:', Boolean(process.env.TMUX));
+  console.log('  dir:     ', dir || process.cwd(), '| tmux:', Boolean(process.env.TMUX), '| desktop:', isDesktop);
   console.log('  command: ', claudeCmd);
   process.exit(0);
 }
@@ -94,7 +100,13 @@ function printFallback() {
   console.log(fullCmd);
 }
 
-if (process.env.TMUX) {
+if (isDesktop) {
+  // Claude desktop app: there is no window we can open for the user. The brief is
+  // written; the pickup skill in a fresh session is the continuation path.
+  console.log(`Desktop app detected — brief saved, nothing spawned (${mirror}).`);
+  console.log('To continue: open a new session in this project (sidebar +) and run the pickup skill.');
+  console.log(`Prefer a terminal instead? Paste:\n\n${fullCmd}`);
+} else if (process.env.TMUX) {
   // Seamless: a new background window in the current tmux session.
   const r = spawnSync('tmux', ['new-window', '-d', '-P', '-F', '#{pane_id}', ...(dir ? ['-c', dir] : [])], { encoding: 'utf8' });
   const pane = (r.stdout || '').trim();

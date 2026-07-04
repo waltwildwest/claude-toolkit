@@ -80,6 +80,14 @@ OUT=$(printf '' | dry s11 "" --dir /no/such/dir/xyz --handoff "$HF" --dry-run); 
 OUT=$(printf '' | dry s12 "" --dir /tmp --handoff /tmp/nope-not-here.md --dry-run); rc=$?
 { [ $rc -ne 0 ] && has "$OUT" "handoff file not found"; } && ok "missing handoff file errors" || no "missing handoff" "$OUT (rc=$rc)"
 
+# 13. desktop app -> spawns nothing, prints pickup steps (and wins over TMUX)
+OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=claude-desktop TMUX=/tmp/fake,1,1 node "$SPAWN" --dir /tmp --handoff "$HF" 2>&1); rc=$?
+{ [ $rc -eq 0 ] && has "$OUT" "Desktop app detected" && has "$OUT" "pickup" && ! has "$OUT" "tmux window"; } && ok "desktop -> pickup steps, no spawn (wins over TMUX)" || no "desktop routing" "$OUT (rc=$rc)"
+
+# 14. terminal CLI entrypoint is NOT treated as desktop
+OUT=$(env HOME=/tmp CLAUDE_CODE_ENTRYPOINT=cli node "$SPAWN" --dir /tmp --handoff "$HF" --dry-run 2>&1)
+has "$OUT" "desktop: false" && ok "cli entrypoint -> not desktop" || no "cli entrypoint" "$OUT"
+
 echo ""
 echo "TIER 2 — real tmux new-window + send-keys actually runs a command (private socket)"
 if command -v tmux >/dev/null 2>&1; then
