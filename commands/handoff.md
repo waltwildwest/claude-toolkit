@@ -1,6 +1,6 @@
 ---
 description: Hand the current task off to a fresh session that mirrors this session's model, effort and permission mode. Runs the `handoff` skill.
-allowed-tools: Write, Bash(node ~/.claude/skills/handoff/handoff-spawn.js:*), Bash(mkdir -p ~/.claude/handoffs)
+allowed-tools: Write, Bash(node:*), Bash(mkdir -p ~/.claude/handoffs)
 ---
 Run the **handoff** skill to hand off this task to a fresh, mirrored session, following its
 steps exactly (write the brief, spawn the mirrored session, relay the output).

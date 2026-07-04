@@ -36,10 +36,11 @@ Run `mkdir -p ~/.claude/handoffs` first. Structure:
 Be specific: paste short code excerpts rather than "look at the auth module." The new session
 has zero memory of this conversation.
 
-**2. Spawn the mirrored session.** Run:
+**2. Spawn the mirrored session.** Run the spawner bundled with this skill (it locates itself, so
+it works wherever the skill is installed):
 
 ```bash
-node ~/.claude/skills/handoff/handoff-spawn.js --dir <projectDir> --handoff <handoffFile>
+node "${CLAUDE_SKILL_DIR:-$HOME/.claude/skills/handoff}/handoff-spawn.js" --dir <projectDir> --handoff <handoffFile>
 ```
 
 It reads this session's model + effort (`$CLAUDE_EFFORT`) + permission mode (from the session
