@@ -111,4 +111,111 @@ EOF
 OUT=$(node "$S" --check-staging "$RUN1"); rcode=$?
 { [ $rcode -eq 0 ] && has "$OUT" '"ok":true' && has "$OUT" '"agents":2'; } && ok "complete staging passes" || no "complete" "rc=$rcode $OUT"
 
+# --- persist (Task 8) ---
+
+# seed a cached source the claims can ground against
+cat > "$V/sources/src_fix1.md" <<'EOF'
+---
+v: 1
+kind: web
+title: "Fixture spec page"
+---
+The **MCP spec** requires [OAuth 2.1](https://spec.example/auth) with PKCE for all remote servers as of the June revision.
+Bearer tokens remain acceptable for local stdio servers only.
+EOF
+
+printf '# Synthesis\n\nOAuth 2.1 with PKCE is required for remote servers.\n\n## Gaps\n\n- none\n' > "$RUN1/synthesis.md"
+cat > "$RUN1/claims-staged.jsonl" <<'EOF'
+{"statement":"Remote MCP servers must use OAuth 2.1","quote":"requires OAuth 2.1 with PKCE for all remote servers","source":"src_fix1","provenance":"verbatim-grounded","confidence":"high","found_by":"spec-reader"}
+{"statement":"Bearer tokens are fine for local stdio servers","quote":"Bearer tokens remain acceptable for local stdio servers only.","source":"src_fix1","provenance":"verbatim-grounded"}
+{"statement":"The spec bans API keys outright","quote":"API keys are prohibited in every deployment mode","source":"src_fix1","provenance":"verbatim-grounded"}
+{"statement":"bad record","confidence":"certain"}
+{"statement":"No MCP server supports SAML as of 2026-07","type":"absence","found_by":"ecosystem","tool":"websearch"}
+{"statement":"Source A says device flow is mandatory","ref":"a","provenance":"model-asserted"}
+{"statement":"Source B says device flow is optional","ref":"b","provenance":"model-asserted"}
+{"op":"contradict","claim":"ref:a","by":"ref:b"}
+EOF
+printf '{"fake":"transcript line 1"}\n{"fake":"transcript line 2"}\n' > "$W/session.jsonl"
+
+OUT=$(node "$S" "$RUN1" --vault "$V" --session 9f3c2ab1 --transcript "$W/session.jsonl"); rcode=$?
+[ $rcode -eq 0 ] && ok "persist exits 0" || no "persist rc" "rc=$rcode $OUT"
+has "$OUT" '"status":"partial"' && ok "partial status (1 reject)" || no "status" "$OUT"
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.claims.accepted===6 && r.claims.rejected===1 && r.claims.downgraded===1 && r.claims.events===1 && r.claims.ids.length===6 ? 0 : 1)' "$OUT" \
+  && ok "claim tallies: 6 accepted / 1 rejected / 1 downgraded / 1 event" || no "tallies" "$OUT"
+has "$OUT" 'fresh run · 2 agents' && ok "provenance line" || no "prov line" "$OUT"
+
+# tier-1 artifacts
+[ -f "$RUN1/lineage.json" ] && grep -q '9f3c2ab1' "$RUN1/lineage.json" && ok "lineage written" || no "lineage" ""
+[ -f "$RUN1/transcripts/session.jsonl.gz" ] && ok "transcript gzipped into run" || no "transcript" "$(ls "$RUN1")"
+node -e '
+const zlib=require("zlib"),fs=require("fs");
+const t=zlib.gunzipSync(fs.readFileSync(process.argv[1])).toString();
+process.exit(t.includes("transcript line 2") ? 0 : 1);
+' "$RUN1/transcripts/session.jsonl.gz" && ok "transcript roundtrips" || no "gunzip" ""
+grep -q '"slug":"mcp-auth-landscape"' "$V/index.jsonl" && ok "index appended" || no "index" "$(cat "$V/index.jsonl")"
+
+# tier-2 artifacts: registry, quarantine, quote rewrite, ref resolution
+grep -c '"id":"clm_' "$V/claims.jsonl" | grep -q '^6$' && ok "6 claims registered" || no "registry" "$(cat "$V/claims.jsonl")"
+grep -q '\[OAuth 2.1\](https://spec.example/auth)' "$V/claims.jsonl" && ok "quote rewritten to source bytes" || no "rewrite" ""
+grep -q 'downgraded: quote not found' "$V/claims.jsonl" && ok "fabricated quote downgraded in registry" || no "downgrade note" ""
+[ -f "$RUN1/claims-rejected.jsonl" ] && grep -q 'bad confidence' "$RUN1/claims-rejected.jsonl" && ok "reject quarantined with reason" || no "quarantine" ""
+node -e '
+const recs = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map(JSON.parse);
+const ev = recs.find((r) => r.op === "contradict");
+process.exit(ev && ev.claim.startsWith("clm_") && ev.by.startsWith("clm_") ? 0 : 1);
+' "$V/claims.jsonl" && ok "batch refs resolved to real ids" || no "ref resolve" "$(grep contradict "$V/claims.jsonl")"
+
+# views + git
+grep -q 'OAuth 2.1 with PKCE is required' "$V/topics/mcp-auth-landscape/topic.md" && ok "topic view regenerated" || no "topic view" ""
+grep -q 'mcp-auth-landscape' "$V/INDEX.md" && ok "INDEX regenerated" || no "INDEX" ""
+git -C "$V" log --oneline | grep -q "persist run" && ok "auto-commit" || no "git" "$(git -C "$V" log --oneline 2>&1)"
+grep -q '"kind":"save"' "$V/metrics.jsonl" && ok "metrics logged" || no "metrics" ""
+
+# human notes survive a re-persist; re-persist must not duplicate claims
+printf 'precious-note-9000\n' >> "$V/topics/mcp-auth-landscape/topic.md"
+OUT=$(node "$S" "$RUN1" --vault "$V" --session 9f3c2ab1)
+grep -q 'precious-note-9000' "$V/topics/mcp-auth-landscape/topic.md" && ok "human notes preserved on re-persist" || no "notes" ""
+grep -c '"id":"clm_' "$V/claims.jsonl" | grep -q '^6$' && ok "re-persist dedupes claims" || no "dedupe" "$(grep -c '"id":"clm_' "$V/claims.jsonl")"
+
+# topic mismatch fails loud
+mkdir -p "$V/topics/other-topic/runs/2026-07-05a-zzzz/findings"
+cp "$RUN1/plan.md" "$V/topics/other-topic/runs/2026-07-05a-zzzz/plan.md"
+node "$S" "$V/topics/other-topic/runs/2026-07-05a-zzzz" --vault "$V" >/dev/null 2>&1
+[ $? -eq 1 ] && ok "topic/folder mismatch fails loud" || no "mismatch" "$?"
+
+# --light: no claims file is fine, provenance line says light
+OUT=$(node "$S" --new-run --topic quick-check --session 9f3c2ab1 --vault "$V")
+RUNL=$(node -e 'console.log(JSON.parse(process.argv[1]).runDir)' "$OUT")
+cat > "$RUNL/plan.md" <<'EOF'
+---
+topic: quick-check
+title: Quick check
+aliases: []
+questions: []
+scope: general
+---
+# Plan
+
+```manifest
+[{"role": "solo", "file": "findings/solo.md"}]
+```
+EOF
+node -e '
+const fs=require("fs");
+fs.writeFileSync(process.argv[1] + "/findings/solo.md", "---\nrole: solo\nrun: x\n---\n\n# Findings\n\n" + "A light-path finding sentence with enough real content to pass the size floor. ".repeat(8));
+' "$RUNL"
+OUT=$(node "$S" "$RUNL" --vault "$V" --light --session 9f3c2ab1); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"status":"complete"' && has "$OUT" 'light run'; } && ok "light path persists clean" || no "light" "rc=$rcode $OUT"
+
+# --- --events (Task 8) ---
+
+C1=$(node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").split("\n").filter(Boolean).map(JSON.parse).filter(r=>r.id && r.statement.includes("OAuth 2.1"));console.log(l[0].id)' "$V/claims.jsonl")
+C2=$(node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").split("\n").filter(Boolean).map(JSON.parse).filter(r=>r.id && r.statement.includes("Bearer tokens"));console.log(l[0].id)' "$V/claims.jsonl")
+printf '{"op":"supersede","claim":"%s","by":"%s","reason":"newer revision"}\n{"op":"supersede","claim":"%s","by":"%s","reason":"would cycle"}\n' "$C1" "$C2" "$C2" "$C1" > "$W/events.jsonl"
+OUT=$(node "$S" --events "$W/events.jsonl" --vault "$V"); rcode=$?
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.applied===1 && r.rejected.length===1 && /cycle/.test(r.rejected[0].reason) ? 0 : 1)' "$OUT" \
+  && ok "events: apply + cycle reject" || no "events" "rc=$rcode $OUT"
+git -C "$V" log --oneline -1 | grep -q "event" && ok "events auto-commit" || no "events git" "$(git -C "$V" log --oneline -1)"
+grep -q 'Superseded' "$V/topics/mcp-auth-landscape/topic.md" && ok "views reflect supersession" || no "views supersede" ""
+
 echo; echo "vault-save: $pass passed, $fail failed"; [ $fail -eq 0 ]
