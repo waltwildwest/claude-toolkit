@@ -510,7 +510,7 @@ const srv = http.createServer((req, res) => {
   if (u.pathname === '/wayback/available') {
     const target = u.searchParams.get('url') || '';
     res.writeHead(200, { 'content-type': 'application/json' });
-    if (target.includes('wb=known')) {
+    if (target.includes('wb%3Dknown') || target.includes('wb=known')) {
       return res.end(JSON.stringify({ archived_snapshots: { closest: { available: true, url: 'http://archive.example/snap/1' } } }));
     }
     return res.end(JSON.stringify({ archived_snapshots: {} }));
@@ -1282,7 +1282,7 @@ const srv = http.createServer((req, res) => {
   if (u.pathname === '/wayback/available') {
     const target = u.searchParams.get('url') || '';
     res.writeHead(200, { 'content-type': 'application/json' });
-    if (target.includes('wb=known')) {
+    if (target.includes('wb%3Dknown') || target.includes('wb=known')) {
       return res.end(JSON.stringify({ archived_snapshots: { closest: { available: true, url: 'http://archive.example/snap/9' } } }));
     }
     return res.end(JSON.stringify({ archived_snapshots: {} }));
