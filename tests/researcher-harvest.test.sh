@@ -88,4 +88,11 @@ node "$H" /nope/missing.jsonl --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "
 RESEARCH_VAULT_DIR= node "$H" "$T" >/dev/null 2>&1
 [ $? -eq 1 ] && ok "missing vault fails loud" || no "vault loud" "$?"
 
+# 9. persist failure surfaces the orphaned staged run instead of hiding it
+V6="$W/vault6"; node "$I" --vault "$V6" >/dev/null 2>&1
+mkdir -p "$V6/topics/mcp-auth-research/topic.md"
+OUT=$(node "$H" "$T" --vault "$V6" 2>/dev/null); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" '"status":"error"' && has "$OUT" 'orphanedRun'; } \
+  && ok "persist failure surfaces orphaned run" || no "orphan" "rc=$rcode $OUT"
+
 echo; echo "vault-harvest: $pass passed, $fail failed"; [ $fail -eq 0 ]

@@ -114,9 +114,18 @@ function harvestOne(vault, transcript, opts) {
   lib.atomicWrite(path.join(run.runDir, 'synthesis.md'),
     '# Synthesis (harvested)\n\n' + (mined.summary ? mined.summary.trim() : '_No final assistant text — digest only._') + '\n');
 
-  const save = execFileSync('node', [path.join(__dirname, 'vault-save.js'), run.runDir,
-    '--light', '--vault', vault, '--session', session, '--transcript', transcript], { encoding: 'utf8' });
-  const saved = JSON.parse(save.trim().split('\n').pop());
+  let saved;
+  try {
+    const save = execFileSync('node', [path.join(__dirname, 'vault-save.js'), run.runDir,
+      '--light', '--vault', vault, '--session', session, '--transcript', transcript], { encoding: 'utf8' });
+    saved = JSON.parse(save.trim().split('\n').pop());
+  } catch (e) {
+    // persist failed: the staged run has no lineage.json, so a retry will
+    // allocate a fresh dir — report the orphan loudly instead of hiding it
+    return { status: 'error', session,
+      error: 'vault-save failed: ' + String((e && (e.stderr || e.message)) || e).split('\n')[0],
+      orphanedRun: run.runDir };
+  }
   return { status: 'harvested', session, runId: run.runId, topic: run.topic,
     writes: mined.writes.length, sources: mined.sources.length,
     versionWarning: mined.versionWarning, provenanceLine: saved.provenanceLine };
@@ -156,7 +165,12 @@ function main() {
   const posArg = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : null;
   const transcript = resolveTranscript(posArg);
   const res = harvestOne(vault, transcript, { topic: getFlag('--topic'), title: getFlag('--title') });
-  if (res.status === 'error') die(res.error);
+  if (res.status === 'error') {
+    process.stdout.write(JSON.stringify(res) + '\n');
+    process.stderr.write('vault-harvest: ' + res.error
+      + (res.orphanedRun ? ' (staged run left at ' + res.orphanedRun + ' — no lineage, safe to inspect or delete)' : '') + '\n');
+    process.exit(1);
+  }
   if (process.argv.includes('--from-inbox') && res.session) removePointers(vault, [res.session]);
   process.stdout.write(JSON.stringify(res) + '\n');
 }

@@ -656,6 +656,13 @@ node "$H" /nope/missing.jsonl --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "
 RESEARCH_VAULT_DIR= node "$H" "$T" >/dev/null 2>&1
 [ $? -eq 1 ] && ok "missing vault fails loud" || no "vault loud" "$?"
 
+# 9. persist failure surfaces the orphaned staged run instead of hiding it
+V6="$W/vault6"; node "$I" --vault "$V6" >/dev/null 2>&1
+mkdir -p "$V6/topics/mcp-auth-research/topic.md"
+OUT=$(node "$H" "$T" --vault "$V6" 2>/dev/null); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" '"status":"error"' && has "$OUT" 'orphanedRun'; } \
+  && ok "persist failure surfaces orphaned run" || no "orphan" "rc=$rcode $OUT"
+
 echo; echo "vault-harvest: $pass passed, $fail failed"; [ $fail -eq 0 ]
 ````
 
@@ -785,9 +792,18 @@ function harvestOne(vault, transcript, opts) {
   lib.atomicWrite(path.join(run.runDir, 'synthesis.md'),
     '# Synthesis (harvested)\n\n' + (mined.summary ? mined.summary.trim() : '_No final assistant text — digest only._') + '\n');
 
-  const save = execFileSync('node', [path.join(__dirname, 'vault-save.js'), run.runDir,
-    '--light', '--vault', vault, '--session', session, '--transcript', transcript], { encoding: 'utf8' });
-  const saved = JSON.parse(save.trim().split('\n').pop());
+  let saved;
+  try {
+    const save = execFileSync('node', [path.join(__dirname, 'vault-save.js'), run.runDir,
+      '--light', '--vault', vault, '--session', session, '--transcript', transcript], { encoding: 'utf8' });
+    saved = JSON.parse(save.trim().split('\n').pop());
+  } catch (e) {
+    // persist failed: the staged run has no lineage.json, so a retry will
+    // allocate a fresh dir — report the orphan loudly instead of hiding it
+    return { status: 'error', session,
+      error: 'vault-save failed: ' + String((e && (e.stderr || e.message)) || e).split('\n')[0],
+      orphanedRun: run.runDir };
+  }
   return { status: 'harvested', session, runId: run.runId, topic: run.topic,
     writes: mined.writes.length, sources: mined.sources.length,
     versionWarning: mined.versionWarning, provenanceLine: saved.provenanceLine };
@@ -827,7 +843,12 @@ function main() {
   const posArg = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : null;
   const transcript = resolveTranscript(posArg);
   const res = harvestOne(vault, transcript, { topic: getFlag('--topic'), title: getFlag('--title') });
-  if (res.status === 'error') die(res.error);
+  if (res.status === 'error') {
+    process.stdout.write(JSON.stringify(res) + '\n');
+    process.stderr.write('vault-harvest: ' + res.error
+      + (res.orphanedRun ? ' (staged run left at ' + res.orphanedRun + ' — no lineage, safe to inspect or delete)' : '') + '\n');
+    process.exit(1);
+  }
   if (process.argv.includes('--from-inbox') && res.session) removePointers(vault, [res.session]);
   process.stdout.write(JSON.stringify(res) + '\n');
 }
@@ -1025,6 +1046,12 @@ verifies and promotes it. Treat harvested material as model-asserted context, no
   only, never the envelope; unknown transcript majors warn loudly and degrade, never abort.
 - Idempotent: a session that appears in ANY run's lineage.json is skipped
   (status already-harvested). Re-running /research save is always safe.
+  Known limitation: the idempotence check is unlocked, so two SIMULTANEOUS
+  harvests of the same session could each create a run — harmless duplication
+  at worst (the stage-3 doctor's orphan/duplicate sweep is the cleanup path);
+  don't script parallel harvests of one session.
+- If the persist step fails, the staged run dir is reported as `orphanedRun`
+  (it has no lineage.json, so it never blocks a retry — inspect or delete it).
 - Resolution order: existing file path → session-id lookup (<projects>/*/<id>.jsonl) →
   --latest (newest .jsonl in the cwd's project dir). CLAUDE_PROJECTS_DIR overrides
   ~/.claude/projects (tests use this; you should not need it).
