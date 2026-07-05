@@ -1,103 +1,36 @@
 {
   "name": "claude-toolkit",
-  "description": "Small, honest tools for Claude Code that work in both the CLI and the desktop app.",
+  "description": "Small, honest tools for Claude Code that work in both the CLI and the desktop app. Each plugin lives in its own repo and stands on its own; this marketplace is the index.",
   "owner": {
     "name": "waltwildwest"
   },
   "plugins": [
     {
       "name": "handoff",
-      "source": "./plugins/handoff",
-      "strict": false,
-      "version": "1.2.1",
-      "description": "Hand a task off to a fresh session that mirrors your model, effort and permission mode. Includes the pickup skill for continuing from a brief in the desktop app.",
-      "author": {
-        "name": "waltwildwest"
+      "source": {
+        "source": "github",
+        "repo": "waltwildwest/handoff"
       },
-      "license": "MIT",
-      "homepage": "https://github.com/waltwildwest/claude-toolkit",
-      "repository": "https://github.com/waltwildwest/claude-toolkit",
-      "keywords": [
-        "handoff",
-        "context",
-        "sessions",
-        "fresh-session",
-        "productivity"
-      ],
-      "category": "productivity",
-      "skills": [
-        "./skills/handoff",
-        "./skills/pickup"
-      ],
-      "commands": [
-        "./commands/handoff.md"
-      ]
+      "description": "Hand a task off to a fresh session that mirrors your model, effort and permission mode. Includes the pickup skill for continuing from a brief in the desktop app.",
+      "category": "productivity"
     },
     {
       "name": "route",
-      "source": "./plugins/route",
-      "strict": false,
-      "version": "2.3.0",
-      "description": "Spend the expensive model only where it earns its price: size delegated work into tiers, reuse identical work from a local result cache, fan big jobs out with a strong-model review, and measure it all with route-report against three honest baselines.",
-      "author": {
-        "name": "waltwildwest"
+      "source": {
+        "source": "github",
+        "repo": "waltwildwest/route"
       },
-      "license": "MIT",
-      "homepage": "https://github.com/waltwildwest/claude-toolkit",
-      "repository": "https://github.com/waltwildwest/claude-toolkit",
-      "keywords": [
-        "routing",
-        "cost",
-        "models",
-        "subagents",
-        "fan-out",
-        "savings",
-        "cache",
-        "caching",
-        "hooks",
-        "activation",
-        "learning",
-        "self-tuning"
-      ],
-      "category": "productivity",
-      "skills": [
-        "./skills/route"
-      ],
-      "commands": [
-        "./commands/route.md"
-      ]
+      "description": "Spend the expensive model only where it earns its price: size delegated work into tiers, reuse identical work from a local result cache, fan big jobs out with a strong-model review, and measure it all with route-report against three honest baselines.",
+      "category": "productivity"
     },
     {
       "name": "re-searcher",
-      "source": "./plugins/re-searcher",
-      "strict": false,
-      "version": "0.3.0",
-      "description": "A persistent research vault for Claude Code: every research run's plan, per-agent findings, cached sources and quote-verified claims are captured as inspectable markdown with provenance down to the transcript — and future research recalls dated claims to spot-check instead of re-deriving everything.",
-      "author": {
-        "name": "waltwildwest"
+      "source": {
+        "source": "github",
+        "repo": "waltwildwest/re-searcher"
       },
-      "license": "MIT",
-      "homepage": "https://github.com/waltwildwest/claude-toolkit",
-      "repository": "https://github.com/waltwildwest/claude-toolkit",
-      "keywords": [
-        "research",
-        "vault",
-        "provenance",
-        "claims",
-        "citations",
-        "sources",
-        "recall",
-        "knowledge-base",
-        "harvest",
-        "transcripts"
-      ],
-      "category": "productivity",
-      "skills": [
-        "./skills/re-searcher"
-      ],
-      "commands": [
-        "./commands/research.md"
-      ]
+      "description": "A persistent research vault: every run's plan, per-agent findings, cached sources and quote-verified claims persist with provenance down to the transcript — and future research recalls dated claims to spot-check instead of re-deriving everything.",
+      "category": "productivity"
     }
   ]
 }
