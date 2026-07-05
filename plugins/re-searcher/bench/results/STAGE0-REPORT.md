@@ -12,10 +12,17 @@ Spec: docs/specs/2026-07-05-re-searcher-design.md (Roadmap item 0)
   MDN 302 **good**; arxiv abs **good** (header noise, abstract intact);
   overreacted.io **good**; stackoverflow **degraded** (banner/nav chrome ahead of
   content; question + answers present — right page, noisy head)
-- notes per rejected non-hard URL: wikipedia/github/rust-book/modelcontextprotocol.io
-  are JS-or-nav-heavy (gate honest: thin-text / link-farm / script-shell);
-  theverge.com/tech is a section index page — link-farm signal is correct, my corpus
-  choice was the mistake (an article URL would likely store)
+- notes per rejected non-hard URL (corrected by final review): wikipedia, github,
+  modelcontextprotocol.io, and theverge were all refused by **`challenge-page`**, and
+  at least Wikipedia is a FALSE refusal — `CHALLENGE_RE` substring-matches "Captcha"
+  occurring in ordinary login/edit chrome while the page carried 43K chars of real
+  article text. Only rust-book was a thin-text refusal. This bias is conservative
+  (depresses usable-rate, never inflates it), so the benchmark numbers stand — but
+  "challenge-page" detection is a defect class, not honest gating, for these four.
+- additional Stage 1 recommendation: make challenge detection structural — require
+  challenge signatures to co-occur with thin-text/short-title evidence (e.g. signature
+  in <title> or textLength < 400) instead of a raw-HTML substring match; re-run the
+  benchmark after the fix (expected usable-rate gain: +2-4 URLs).
 - urls.txt annotation errata: the stackoverflow line's human description said
   "split a string" but question id 643699 is numpy.correlate autocorrelation —
   fetch and storage behaved correctly; the comment was wrong.
