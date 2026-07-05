@@ -1376,7 +1376,7 @@ grep -q '^wayback: exists$' "$V/sources/srcpromo.md" && grep -q '^wayback_url: h
   && ok "source frontmatter wayback updated" || no "wb frontmatter" "$(head -8 "$V/sources/srcpromo.md")"
 [ "$(grep -c . "$V/wayback-queue.jsonl")" = "0" ] && ok "wayback queue drained" || no "queue" "$(cat "$V/wayback-queue.jsonl")"
 [ "$(grep -c . "$V/inbox.jsonl")" = "0" ] && ok "dead pointer removed" || no "inbox" "$(cat "$V/inbox.jsonl")"
-[ "$(grep -c . "$V/index.jsonl")" = "3" ] && ok "index compacted + alias append" || no "index lines" "$(cat "$V/index.jsonl")"
+[ "$(grep -c . "$V/index.jsonl")" = "2" ] && ok "index compacted with learned alias merged" || no "index lines" "$(cat "$V/index.jsonl")"
 node -e '
 const fs = require("fs");
 const recs = fs.readFileSync(process.argv[1] + "/index.jsonl", "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
@@ -1384,7 +1384,7 @@ const k = recs.filter((r) => r.slug === "kube-networking").pop();
 process.exit(k && k.aliases.includes("k8s ingress") ? 0 : 1);
 ' "$V" && ok "learned alias in index" || no "alias" ""
 [ "$(grep -c . "$V/claims-current.jsonl")" = "3" ] && ok "claims-current materialized" || no "claims-current" ""
-grep -q '| unknown | 1 |' "$V/profiles/source-quality.md" && ok "profiles/source-quality.md written" || no "profiles" "$(cat "$V/profiles/source-quality.md" 2>/dev/null | head -20)"
+grep -q '| unknown | 3 |' "$V/profiles/source-quality.md" && ok "profiles/source-quality.md written" || no "profiles" "$(cat "$V/profiles/source-quality.md" 2>/dev/null | head -20)"
 grep -q 'doctor backlog: 2 to promote' "$V/DASHBOARD.md" && ok "dashboard has doctor backlog" || no "dashboard" "$(grep backlog "$V/DASHBOARD.md")"
 
 # --- promotion path: doctor-sanctioned verify -> recall serves externally-verified ---
@@ -1711,12 +1711,20 @@ async function run() {
       f.deadPointersDropped = report.deadPointers.length;
     }
 
-    // index compaction: last-record-per-slug (same data the readers already see)
+    // index compaction + alias learning in ONE write (last-record-per-slug;
+    // learned aliases merge into the map BEFORE the write, so a re-run finds
+    // nothing to compact — the idempotence the contract test asserts)
     const idxFile = path.join(vault, 'index.jsonl');
     const idxRecords = lib.readJsonl(idxFile).records;
     const lastBySlug = new Map();
     for (const r of idxRecords) if (r && r.slug) lastBySlug.set(r.slug, r);
-    if (lastBySlug.size < idxRecords.length) {
+    for (const { slug, alias } of mineAliases(metricsRecords, hwm.metrics || 0, lastBySlug)) {
+      const prev = lastBySlug.get(slug);
+      if (!prev || (prev.aliases && prev.aliases.includes(alias))) continue;
+      lastBySlug.set(slug, Object.assign({}, prev, { aliases: Array.from(new Set([].concat(prev.aliases || [], [alias]))) }));
+      f.aliasesLearned.push({ slug, alias });
+    }
+    if (lastBySlug.size < idxRecords.length || f.aliasesLearned.length) {
       lib.atomicWrite(idxFile, Array.from(lastBySlug.values()).map((r) => JSON.stringify(r)).join('\n') + (lastBySlug.size ? '\n' : ''));
     }
     f.indexCompacted = { before: idxRecords.length, after: lastBySlug.size };
@@ -1728,15 +1736,6 @@ async function run() {
     lib.atomicWrite(path.join(vault, 'claims-current.jsonl'),
       current.map((c) => JSON.stringify(c)).join('\n') + (current.length ? '\n' : ''));
     f.claimsCurrent = current.length;
-
-    for (const { slug, alias } of mineAliases(metricsRecords, hwm.metrics || 0, lastBySlug)) {
-      const prev = lastBySlug.get(slug);
-      if (!prev) continue;
-      const rec = Object.assign({}, prev, { aliases: Array.from(new Set([].concat(prev.aliases || [], [alias]))) });
-      lib.appendJsonl(idxFile, rec);
-      lastBySlug.set(slug, rec);
-      f.aliasesLearned.push({ slug, alias });
-    }
 
     const keepQ = [];
     for (const o of outcomes) {

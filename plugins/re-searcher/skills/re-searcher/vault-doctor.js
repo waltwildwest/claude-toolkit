@@ -268,12 +268,20 @@ async function run() {
       f.deadPointersDropped = report.deadPointers.length;
     }
 
-    // index compaction: last-record-per-slug (same data the readers already see)
+    // index compaction + alias learning in ONE write (last-record-per-slug;
+    // learned aliases merge into the map BEFORE the write, so a re-run finds
+    // nothing to compact — the idempotence the contract test asserts)
     const idxFile = path.join(vault, 'index.jsonl');
     const idxRecords = lib.readJsonl(idxFile).records;
     const lastBySlug = new Map();
     for (const r of idxRecords) if (r && r.slug) lastBySlug.set(r.slug, r);
-    if (lastBySlug.size < idxRecords.length) {
+    for (const { slug, alias } of mineAliases(metricsRecords, hwm.metrics || 0, lastBySlug)) {
+      const prev = lastBySlug.get(slug);
+      if (!prev || (prev.aliases && prev.aliases.includes(alias))) continue;
+      lastBySlug.set(slug, Object.assign({}, prev, { aliases: Array.from(new Set([].concat(prev.aliases || [], [alias]))) }));
+      f.aliasesLearned.push({ slug, alias });
+    }
+    if (lastBySlug.size < idxRecords.length || f.aliasesLearned.length) {
       lib.atomicWrite(idxFile, Array.from(lastBySlug.values()).map((r) => JSON.stringify(r)).join('\n') + (lastBySlug.size ? '\n' : ''));
     }
     f.indexCompacted = { before: idxRecords.length, after: lastBySlug.size };
@@ -285,17 +293,6 @@ async function run() {
     lib.atomicWrite(path.join(vault, 'claims-current.jsonl'),
       current.map((c) => JSON.stringify(c)).join('\n') + (current.length ? '\n' : ''));
     f.claimsCurrent = current.length;
-
-    for (const { slug, alias } of mineAliases(metricsRecords, hwm.metrics || 0, lastBySlug)) {
-      const prev = lastBySlug.get(slug);
-      if (!prev) continue;
-      // Check if alias is already present; skip if so (idempotency)
-      if (prev.aliases && prev.aliases.includes(alias)) continue;
-      const rec = Object.assign({}, prev, { aliases: Array.from(new Set([].concat(prev.aliases || [], [alias]))) });
-      lib.appendJsonl(idxFile, rec);
-      lastBySlug.set(slug, rec);
-      f.aliasesLearned.push({ slug, alias });
-    }
 
     const keepQ = [];
     for (const o of outcomes) {

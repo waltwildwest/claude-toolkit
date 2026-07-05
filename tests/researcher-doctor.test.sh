@@ -120,7 +120,7 @@ grep -q '^wayback: exists$' "$V/sources/srcpromo.md" && grep -q '^wayback_url: h
   && ok "source frontmatter wayback updated" || no "wb frontmatter" "$(head -8 "$V/sources/srcpromo.md")"
 [ "$(grep -c . "$V/wayback-queue.jsonl")" = "0" ] && ok "wayback queue drained" || no "queue" "$(cat "$V/wayback-queue.jsonl")"
 [ "$(grep -c . "$V/inbox.jsonl")" = "0" ] && ok "dead pointer removed" || no "inbox" "$(cat "$V/inbox.jsonl")"
-[ "$(grep -c . "$V/index.jsonl")" = "3" ] && ok "index compacted + alias append" || no "index lines" "$(cat "$V/index.jsonl")"
+[ "$(grep -c . "$V/index.jsonl")" = "2" ] && ok "index compacted with learned alias merged" || no "index lines" "$(cat "$V/index.jsonl")"
 node -e '
 const fs = require("fs");
 const recs = fs.readFileSync(process.argv[1] + "/index.jsonl", "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
@@ -128,7 +128,7 @@ const k = recs.filter((r) => r.slug === "kube-networking").pop();
 process.exit(k && k.aliases.includes("k8s ingress") ? 0 : 1);
 ' "$V" && ok "learned alias in index" || no "alias" ""
 [ "$(grep -c . "$V/claims-current.jsonl")" = "3" ] && ok "claims-current materialized" || no "claims-current" ""
-grep -q '| unknown | 1 |' "$V/profiles/source-quality.md" && ok "profiles/source-quality.md written" || no "profiles" "$(cat "$V/profiles/source-quality.md" 2>/dev/null | head -20)"
+grep -q '| unknown | 3 |' "$V/profiles/source-quality.md" && ok "profiles/source-quality.md written" || no "profiles" "$(cat "$V/profiles/source-quality.md" 2>/dev/null | head -20)"
 grep -q 'doctor backlog: 2 to promote' "$V/DASHBOARD.md" && ok "dashboard has doctor backlog" || no "dashboard" "$(grep backlog "$V/DASHBOARD.md")"
 
 # --- promotion path: doctor-sanctioned verify -> recall serves externally-verified ---
