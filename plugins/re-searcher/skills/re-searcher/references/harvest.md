@@ -31,8 +31,10 @@ verifies and promotes it. Treat harvested material as model-asserted context, no
 - The inbox (inbox.jsonl) holds Stop-hook pointers: {session, transcript, subagents, cwd,
   topicGuess, ts, transcript_dies}. Appends are lock-free single lines (the hook must never
   stall); REMOVALS rewrite the file under the vault lock and auto-commit
-  (`research: drain inbox (N pointers)`). Subagent transcripts are pointed to (the
-  `subagents` path), not yet mined — that is librarian territory (stage 3).
+  (`research: drain inbox (N pointers)`). Subagent transcripts ARE mined (stage 3): every agent-*.jsonl under the
+  session's subagents/ dir is folded into the digest (## Subagents) and
+  gzipped into the run beside the main transcript. Drains report an `errors`
+  tally; error pointers stay queued for the next drain.
 - Bulk drain (--inbox): pointers whose transcript file no longer exists are dropped as
   transcript-missing — transcripts rot on Claude Code's retention schedule;
   transcript_dies is the estimate (RESEARCH_TRANSCRIPT_TTL_DAYS tunes it, default 30).
