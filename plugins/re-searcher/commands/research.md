@@ -9,8 +9,10 @@ Routing:
 - `--fresh <question>` → skip recall, research fresh, still persist to the vault.
 - `correct …` → the correction flow (skill references/correct.md): supersede/retract/
   contradict events applied via vault-save.js --events.
-- `save` / `harvest` → NOT BUILT YET (stage 2 — the harvester). Say so honestly; offer
-  to keep findings in a run dir manually if the user needs capture right now.
+- `save` → harvest THIS session now: `node "$SKILL_DIR/vault-harvest.js" --latest --vault "$VAULT"`,
+  then relay its provenanceLine (details: skill §7 + references/harvest.md).
+- `harvest <session-id>` → harvest that past session; `harvest --inbox` → drain every
+  pending pointer. Report the JSON tallies in one line.
 - `doctor` → NOT BUILT YET (stage 3 — the librarian). Say so honestly.
 
 As a plugin install this command is namespaced — `/re-searcher:research` — bare
