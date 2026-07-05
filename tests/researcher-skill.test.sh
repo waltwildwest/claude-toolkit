@@ -59,4 +59,20 @@ if (!p.commands.includes("./commands/research.md")) process.exit(4);
 grep -q 're-searcher' "$ROOT/install.sh" && ok "install.sh knows re-searcher" || no "install.sh" ""
 grep -q 're-searcher' "$ROOT/README.md" && ok "README documents re-searcher" || no "README" ""
 
+# --- stage 2 registration ---
+HK="$ROOT/plugins/re-searcher/hooks/hooks.json"
+node -e '
+const h = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const stop = h.hooks.Stop[0].hooks[0];
+process.exit(stop.type === "command" && /inbox-note\.js/.test(stop.command) && /CLAUDE_PLUGIN_ROOT/.test(stop.command) ? 0 : 1);
+' "$HK" && ok "Stop hook registered" || no "hook" ""
+[ -f "$ROOT/plugins/re-searcher/skills/re-searcher/inbox-note.js" ] && ok "hook target exists" || no "hook target" ""
+node -e '
+const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const p = m.plugins.find((x) => x.name === "re-searcher");
+process.exit(p.version === "0.2.0" ? 0 : 1);
+' "$ROOT/.claude-plugin/marketplace.json" && ok "marketplace bumped to 0.2.0" || no "version" ""
+grep -q 'inbox-note' "$ROOT/install.sh" && ok "install.sh documents the hook" || no "install hook" ""
+grep -qi 'harvest' "$ROOT/README.md" && ok "README documents harvest" || no "README harvest" ""
+
 echo; echo "skill: $pass passed, $fail failed"; [ $fail -eq 0 ]

@@ -169,6 +169,13 @@ ones are downgraded to `model-asserted`, never silently trusted. Corrections are
 append-only supersede/retract events; contradicting claims are served flagged, both of
 them, until a human resolves the conflict.
 
+Sessions you never ran through `/research` aren't lost either: a silent Stop hook drops a
+pointer into the vault inbox, and `/research save` (this session), `/research harvest
+<session>`, or `harvest --inbox` (bulk) mine transcripts into light runs after the fact —
+deterministically (Write payloads, source events, final summary, every item with a
+transcript:line pointer), idempotently, and with no claims invented: the librarian
+(stage 3) does the verifying.
+
 ## Repository layout
 
 ```
