@@ -47,6 +47,11 @@ function redactSource(vault, id, reason) {
     return fs.existsSync(tomb) ? { status: 'already-redacted', kind: 'source', id } : null;
   }
   return lib.withLock(vault, () => {
+    // re-check INSIDE the lock: a concurrent redact of the same id must
+    // become a no-op here, never rewrite the tombstone with new provenance
+    if (!fs.existsSync(srcMd)) {
+      return fs.existsSync(tomb) ? { status: 'already-redacted', kind: 'source', id } : null;
+    }
     const removed = [];
     fs.rmSync(srcMd, { force: true });
     removed.push('sources/' + id + '.md');
