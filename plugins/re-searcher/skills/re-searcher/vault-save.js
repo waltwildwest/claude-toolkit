@@ -32,28 +32,14 @@ function getAll(name) {
 }
 function die(msg) { process.stderr.write('vault-save: ' + msg + '\n'); process.exit(1); }
 
-function today() {
-  const d = new Date();
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
-
 function newRun() {
   const vault = lib.resolveVault(getFlag('--vault'));
   const rawTopic = getFlag('--topic');
   if (!rawTopic) die('usage: vault-save.js --new-run --topic <slug> [--session <id>] [--vault <dir>]');
-  const topic = lib.slugify(rawTopic);
-  const sess = (getFlag('--session') || 'anon').replace(/[^a-z0-9]/gi, '').slice(0, 4).toLowerCase() || 'anon';
-  const runsDir = path.join(vault, 'topics', topic, 'runs');
-  fs.mkdirSync(runsDir, { recursive: true });
-  for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
-    const id = today() + letter + '-' + sess;
-    const dir = path.join(runsDir, id);
-    try { fs.mkdirSync(dir); } catch (e) { if (e.code === 'EEXIST') continue; throw e; }
-    fs.mkdirSync(path.join(dir, 'findings'));
-    process.stdout.write(JSON.stringify({ runId: id, runDir: dir, topic }) + '\n');
-    return;
-  }
-  die('could not allocate a run folder (26 same-day runs with the same session suffix)');
+  let r;
+  try { r = lib.allocateRun(vault, rawTopic, getFlag('--session')); }
+  catch (e) { die(e.message); }
+  process.stdout.write(JSON.stringify(r) + '\n');
 }
 
 function readManifest(runDir) {
@@ -118,7 +104,7 @@ function persist(runDir) {
   if (folderTopic !== topic) die('plan topic "' + topic + '" does not match run folder topic "' + folderTopic + '" — fix plan.md or move the run');
   const runId = path.basename(runDir);
   const light = process.argv.includes('--light');
-  const date = today();
+  const date = lib.today();
   const warnings = [];
 
   const result = lib.withLock(vault, () => {
@@ -239,7 +225,7 @@ function saveEvents(file) {
   if (!fs.existsSync(file)) die('events file missing: ' + file);
   const out = lib.withLock(vault, () => {
     // runId/topic are inert here — events-only validation never registers claims
-    const ctx = claimCtx(vault, 'events', null, today());
+    const ctx = claimCtx(vault, 'events', null, lib.today());
     let applied = 0;
     const rejectedList = [];
     for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
