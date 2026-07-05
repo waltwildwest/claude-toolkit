@@ -643,7 +643,7 @@ function appendJsonl(file, obj) {
 // Minimal frontmatter: --- delimited key: value lines; values that parse as
 // JSON (arrays, numbers, booleans) are parsed, everything else is a string.
 function parseFrontmatter(text) {
-  const m = String(text).match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  const m = String(text).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) return { fields: {}, body: String(text) };
   const fields = {};
   for (const line of m[1].split('\n')) {

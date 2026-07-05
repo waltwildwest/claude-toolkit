@@ -115,4 +115,12 @@ const r = lib.gitCommit(process.argv[2], "test");
 process.exit(!r.committed && /git/.test(r.warning || "") ? 0 : 1);
 ' "$LIB" "$V" && ok "gitCommit non-repo warns" || no "gitCommit" ""
 
+# 9. frontmatter tolerates CRLF line endings (fields parse, body preserved)
+node -e '
+const lib = require(process.argv[1]);
+const { fields, body } = lib.parseFrontmatter("---\r\ntopic: mcp-auth\r\nrole: reader\r\n---\r\nBody line");
+if (fields.topic !== "mcp-auth" || fields.role !== "reader") process.exit(1);
+if (!body.includes("Body line")) process.exit(2);
+' "$LIB" && ok "parseFrontmatter CRLF" || no "crlf" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]
