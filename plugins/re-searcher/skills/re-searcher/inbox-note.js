@@ -37,7 +37,10 @@ function main() {
     }
   } catch (_e) { return; }
 
-  const ttlDays = Number(process.env.RESEARCH_TRANSCRIPT_TTL_DAYS || 30);
+  // clamp: a garbage TTL env var must degrade to the default, not NaN the
+  // date and silently drop this session's pointer
+  const rawTtl = Number(process.env.RESEARCH_TRANSCRIPT_TTL_DAYS || 30);
+  const ttlDays = Number.isFinite(rawTtl) ? rawTtl : 30;
   const cwd = String(hook.cwd || process.cwd());
   fs.appendFileSync(inboxFile, JSON.stringify({
     v: 1, kind: 'pointer', session: String(session), transcript: String(transcript),

@@ -44,4 +44,8 @@ OUT=$(printf '%s' "$HOOK" | RESEARCH_VAULT_DIR="$W/novault" node "$N" 2>&1); rco
 printf 'not json' | RESEARCH_VAULT_DIR="$V" node "$N" 2>/dev/null; [ $? -eq 0 ] && ok "garbage stdin tolerated" || no "garbage" "$?"
 printf '{"cwd":"/x"}' | RESEARCH_VAULT_DIR="$V" node "$N"; [ "$(grep -c . "$V/inbox.jsonl")" = "1" ] && ok "missing session/transcript -> no-op" || no "partial stdin" ""
 
+# 6. garbage TTL env var degrades to the default instead of dropping the pointer
+printf '%s' "${HOOK/sess-hook-0001/sess-hook-0003}" | RESEARCH_TRANSCRIPT_TTL_DAYS=banana RESEARCH_VAULT_DIR="$V" node "$N"
+grep -q 'sess-hook-0003' "$V/inbox.jsonl" && ok "NaN TTL clamps to default" || no "ttl clamp" "$(cat "$V/inbox.jsonl")"
+
 echo; echo "inbox-note: $pass passed, $fail failed"; [ $fail -eq 0 ]

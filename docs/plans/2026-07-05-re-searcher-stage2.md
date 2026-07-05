@@ -457,6 +457,10 @@ OUT=$(printf '%s' "$HOOK" | RESEARCH_VAULT_DIR="$W/novault" node "$N" 2>&1); rco
 printf 'not json' | RESEARCH_VAULT_DIR="$V" node "$N" 2>/dev/null; [ $? -eq 0 ] && ok "garbage stdin tolerated" || no "garbage" "$?"
 printf '{"cwd":"/x"}' | RESEARCH_VAULT_DIR="$V" node "$N"; [ "$(grep -c . "$V/inbox.jsonl")" = "1" ] && ok "missing session/transcript -> no-op" || no "partial stdin" ""
 
+# 6. garbage TTL env var degrades to the default instead of dropping the pointer
+printf '%s' "${HOOK/sess-hook-0001/sess-hook-0003}" | RESEARCH_TRANSCRIPT_TTL_DAYS=banana RESEARCH_VAULT_DIR="$V" node "$N"
+grep -q 'sess-hook-0003' "$V/inbox.jsonl" && ok "NaN TTL clamps to default" || no "ttl clamp" "$(cat "$V/inbox.jsonl")"
+
 echo; echo "inbox-note: $pass passed, $fail failed"; [ $fail -eq 0 ]
 ```
 
@@ -509,7 +513,10 @@ function main() {
     }
   } catch (_e) { return; }
 
-  const ttlDays = Number(process.env.RESEARCH_TRANSCRIPT_TTL_DAYS || 30);
+  // clamp: a garbage TTL env var must degrade to the default, not NaN the
+  // date and silently drop this session's pointer
+  const rawTtl = Number(process.env.RESEARCH_TRANSCRIPT_TTL_DAYS || 30);
+  const ttlDays = Number.isFinite(rawTtl) ? rawTtl : 30;
   const cwd = String(hook.cwd || process.cwd());
   fs.appendFileSync(inboxFile, JSON.stringify({
     v: 1, kind: 'pointer', session: String(session), transcript: String(transcript),
