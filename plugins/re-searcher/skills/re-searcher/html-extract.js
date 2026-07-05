@@ -102,14 +102,31 @@ function extract(html) {
   return { title, markdown: md, textLength, linkDensity: Number(linkDensity.toFixed(3)) };
 }
 
+const CHALLENGE_RE = /just a moment|checking your browser|attention required|cf-ray|ray id:|enable javascript and cookies|access denied|captcha/i;
+
+function assess(html, ext) {
+  const signals = [];
+  let score = 1.0;
+  if (CHALLENGE_RE.test(String(html))) { signals.push('challenge-page'); score -= 0.6; }
+  if (ext.textLength < 200) { signals.push('thin-text'); score -= 0.55; }
+  if (ext.linkDensity > 0.5) { signals.push('link-farm'); score -= 0.3; }
+  const rawLen = String(html).length;
+  if (rawLen > 20000 && ext.textLength < rawLen / 200) { signals.push('script-shell'); score -= 0.3; }
+  score = Math.max(0, Math.min(1, Number(score.toFixed(2))));
+  return { score, usable: score >= 0.5, signals };
+}
+
 function main() {
   const file = process.argv[2];
-  if (!file) { process.stderr.write('usage: html-extract.js <file.html>\n'); process.exit(1); }
+  const wantAssess = process.argv.includes('--assess');
+  if (!file || file.startsWith('--')) { process.stderr.write('usage: html-extract.js <file.html> [--assess]\n'); process.exit(1); }
   let html;
   try { html = fs.readFileSync(file, 'utf8'); }
   catch (err) { process.stderr.write('cannot read ' + file + ': ' + (err.code || err.message) + '\n'); process.exit(1); }
-  process.stdout.write(JSON.stringify(extract(html)) + '\n');
+  const ext = extract(html);
+  const out = wantAssess ? Object.assign({}, ext, assess(html, ext)) : ext;
+  process.stdout.write(JSON.stringify(out) + '\n');
 }
 
 if (require.main === module) main();
-module.exports = { extract, decodeEntities, plain };
+module.exports = { extract, assess, decodeEntities, plain };

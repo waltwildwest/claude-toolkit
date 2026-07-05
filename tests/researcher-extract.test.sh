@@ -65,4 +65,41 @@ has "$OUT" 'Main region text' && ok "main fallback" || no "main fallback" "$OUT"
 ERR=$(node "$X" "$W/nope.html" 2>&1); rcode=$?
 { [ $rcode -eq 1 ] && has "$ERR" "cannot read"; } && ok "missing file fails loud" || no "missing file" "rc=$rcode $ERR"
 
+# --- assess (Task 2) ---
+
+# SPA shell: big HTML, no text
+cat > "$W/spa.html" <<'EOF'
+<html><head><title>App</title></head><body><div id="root"></div>
+<script src="/bundle.js"></script></body></html>
+EOF
+OUT=$(node "$X" "$W/spa.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(!r.usable && r.signals.includes("thin-text") ? 0 : 1)' "$OUT" \
+  && ok "spa shell -> not usable, thin-text" || no "spa shell" "$OUT"
+
+# Cloudflare-style challenge page
+cat > "$W/challenge.html" <<'EOF'
+<html><head><title>Just a moment...</title></head><body>
+<h1>Just a moment...</h1><p>Checking your browser before accessing example.com.</p>
+<p>Ray ID: 8a2b3c4d5e6f</p></body></html>
+EOF
+OUT=$(node "$X" "$W/challenge.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(!r.usable && r.signals.includes("challenge-page") ? 0 : 1)' "$OUT" \
+  && ok "challenge page detected" || no "challenge" "$OUT"
+
+# Link farm: text dominated by link labels
+cat > "$W/links.html" <<'EOF'
+<html><head><title>Links</title></head><body><main>
+<p><a href="/1">alpha beta gamma</a> <a href="/2">delta epsilon zeta</a>
+<a href="/3">eta theta iota</a> <a href="/4">kappa lambda mu</a> x</p>
+</main></body></html>
+EOF
+OUT=$(node "$X" "$W/links.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(!r.usable && r.signals.includes("link-farm") ? 0 : 1)' "$OUT" \
+  && ok "link farm -> not usable" || no "link farm" "$OUT"
+
+# The good article from Task 1 must be usable with no signals
+OUT=$(node "$X" "$W/article.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.usable && r.score>=0.7 && r.signals.length===0 ? 0 : 1)' "$OUT" \
+  && ok "real article -> usable, clean" || no "article usable" "$OUT"
+
 echo; echo "extract: $pass passed, $fail failed"; [ $fail -eq 0 ]
