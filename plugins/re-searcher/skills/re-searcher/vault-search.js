@@ -3,7 +3,8 @@
 // vault-search — the only sanctioned recall interface. Raw grep finds
 // candidates; this folds events so superseded/retracted claims never serve
 // as live. Prints a verdict-ready provenance line per hit, near-misses on a
-// miss, and logs every recall to metrics.jsonl unconditionally (audit detail
+// miss (with lazy-harvest breadcrumbs from unharvested sessions when relevant),
+// and logs every recall to metrics.jsonl unconditionally (audit detail
 // belongs in the log; chat gets one line unless something is anomalous).
 //
 //   node vault-search.js <terms...> [--vault <dir>] [--project <slug>] [--json]
@@ -117,10 +118,25 @@ function main() {
     const near = Array.from(index.values())
       .map((r) => ({ slug: r.slug, sim: trigramSim(query, r.slug + ' ' + (r.title || '') + ' ' + (r.aliases || []).join(' ')) }))
       .filter((x) => x.sim > 0.15).sort((a, b) => b.sim - a.sim).slice(0, 3);
-    lib.appendJsonl(path.join(vault, 'metrics.jsonl'), { v: 1, kind: 'near-miss', ts: new Date().toISOString(), terms, near: near.map((n) => n.slug) });
-    if (wantJson) process.stdout.write(JSON.stringify({ hits: [], nearMisses: near.map((n) => n.slug) }) + '\n');
-    else if (near.length) process.stdout.write('no match — closest: ' + near.map((n) => n.slug).join(', ') + ' — one of these? (learn it: vault-search.js --add-alias <slug> "<your term>")\n');
-    else process.stdout.write('no match — vault has ' + index.size + ' topic(s), none close. Fresh research needed.\n');
+    // lazy-harvest breadcrumb (spec Pillar 1): an unharvested session whose
+    // pointer looks topically relevant is announced on a miss — mining
+    // happens only now, when it has a paying customer.
+    const inboxMatches = lib.readJsonl(path.join(vault, 'inbox.jsonl')).records
+      .filter((p) => p && p.kind === 'pointer')
+      .filter((p) => {
+        const hay = ((p.topicGuess || '') + ' ' + (p.cwd || '')).toLowerCase();
+        return terms.some((t) => hay.includes(t));
+      }).slice(0, 3);
+    lib.appendJsonl(path.join(vault, 'metrics.jsonl'), { v: 1, kind: 'near-miss', ts: new Date().toISOString(), terms, near: near.map((n) => n.slug), inbox: inboxMatches.map((p) => p.session) });
+    if (wantJson) {
+      process.stdout.write(JSON.stringify({ hits: [], nearMisses: near.map((n) => n.slug), inboxPointers: inboxMatches }) + '\n');
+      process.exit(2);
+    }
+    if (near.length) process.stdout.write('no match — closest: ' + near.map((n) => n.slug).join(', ') + ' — one of these? (learn it: vault-search.js --add-alias <slug> "<your term>")\n');
+    else process.stdout.write('no match — vault has ' + index.size + ' topic(s), none close.' + (inboxMatches.length ? '' : ' Fresh research needed.') + '\n');
+    for (const p of inboxMatches) {
+      process.stdout.write('unharvested session ' + String(p.session).slice(0, 8) + ' (' + (p.topicGuess || '?') + ', noted ' + String(p.ts).slice(0, 10) + ', transcript dies ' + (p.transcript_dies || '?') + ') may cover this — harvest: node vault-harvest.js ' + p.session + '\n');
+    }
     process.exit(2);
   }
 
