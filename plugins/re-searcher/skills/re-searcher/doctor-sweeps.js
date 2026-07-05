@@ -106,18 +106,46 @@ const SECRET_PATTERNS = [
   ['bearer-header', /[Aa]uthorization:\s*[Bb]earer\s+[A-Za-z0-9._-]{20,}/],
 ];
 
-// Raw HTML enters git history — this sweep is the safety net behind the
-// store-time scrub. Findings recommend vault-redact; NEVER auto-delete.
+function scanText(out, rel, text) {
+  for (const [name, re] of SECRET_PATTERNS) if (re.test(text)) out.push({ file: rel, pattern: name });
+}
+
+function scanFile(out, vault, rel) {
+  let text;
+  try { text = fs.readFileSync(path.join(vault, rel), 'utf8'); } catch (_e) { return; }
+  scanText(out, rel, text);
+}
+
+// Secrets hide wherever text is stored, not just raw HTML: the extracted
+// markdown (which recall/export/DASHBOARD actually surface), agent-written run
+// artifacts (plan/findings/synthesis), and claim quotes. Scan them all — this
+// is the safety net behind the store-time scrub. Findings recommend
+// vault-redact; NEVER auto-delete. (Off the critical path; a full walk is fine.)
 function sweepSecrets(vault) {
   const out = [];
   const rawDir = path.join(vault, 'sources', 'raw');
-  if (!fs.existsSync(rawDir)) return out;
-  for (const f of fs.readdirSync(rawDir)) {
-    if (!/\.html$/i.test(f)) continue;
-    let text;
-    try { text = fs.readFileSync(path.join(rawDir, f), 'utf8'); } catch (_e) { continue; }
-    for (const [name, re] of SECRET_PATTERNS) {
-      if (re.test(text)) out.push({ file: 'sources/raw/' + f, pattern: name });
+  if (fs.existsSync(rawDir)) {
+    for (const f of fs.readdirSync(rawDir)) if (/\.html$/i.test(f)) scanFile(out, vault, 'sources/raw/' + f);
+  }
+  const srcDir = path.join(vault, 'sources');
+  if (fs.existsSync(srcDir)) {
+    for (const f of fs.readdirSync(srcDir)) if (/\.md$/i.test(f)) scanFile(out, vault, 'sources/' + f);
+  }
+  for (const e of listRunDirs(vault)) {
+    const base = path.join('topics', e.topic, 'runs', e.run);
+    for (const rel of ['plan.md', 'synthesis.md']) {
+      if (fs.existsSync(path.join(vault, base, rel))) scanFile(out, vault, path.join(base, rel));
+    }
+    const fdir = path.join(vault, base, 'findings');
+    if (fs.existsSync(fdir)) {
+      for (const f of fs.readdirSync(fdir)) if (/\.md$/i.test(f)) scanFile(out, vault, path.join(base, 'findings', f));
+    }
+  }
+  // claim quotes/statements live in claims.jsonl (one finding per matching line)
+  const claimsFile = path.join(vault, 'claims.jsonl');
+  if (fs.existsSync(claimsFile)) {
+    for (const c of lib.readJsonl(claimsFile).records) {
+      if (c && c.id) scanText(out, 'claims.jsonl#' + c.id, String(c.quote || '') + ' ' + String(c.statement || ''));
     }
   }
   return out;

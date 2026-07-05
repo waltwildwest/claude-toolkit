@@ -60,18 +60,20 @@ function redactSource(vault, id, reason) {
     if (fs.existsSync(rawPath)) { fs.rmSync(rawPath, { force: true }); removed.push('sources/raw/' + hash8 + '.html'); }
     lib.atomicWrite(tomb, JSON.stringify({ v: 1, source: id, reason: reason || 'redacted', date: lib.today(), removed }, null, 2) + '\n');
 
-    const logFile = path.join(vault, 'sources', 'fetch-log.jsonl');
-    if (fs.existsSync(logFile)) {
-      const keep = lib.readJsonl(logFile).records.filter((r) => !(r && r.source_id === id));
-      lib.atomicWrite(logFile, keep.map((r) => JSON.stringify(r)).join('\n') + (keep.length ? '\n' : ''));
-    }
-
+    // fetch-log is intentionally NOT rewritten here: vault-fetch appends to it
+    // lock-free, so a full-file rewrite would race and silently drop a
+    // concurrent fetch's entry. Instead the tombstone we just wrote makes
+    // vault-fetch's dedupe skip this source, so a refetch stores fresh rather
+    // than resurrecting the redacted file.
     const claimsFile = path.join(vault, 'claims.jsonl');
     const { claims } = lib.foldClaims(lib.readJsonl(claimsFile).records);
     const downgraded = [];
+    const quoteResidue = [];
     const touched = new Set();
     for (const c of claims.values()) {
-      if (c.source !== id || c.status === 'retracted' || !GROUNDED.includes(c.provenance)) continue;
+      if (c.source !== id) continue;
+      if (c.quote && String(c.quote).trim()) quoteResidue.push(c.id); // quote text survives in the append-only record
+      if (c.status === 'retracted' || !GROUNDED.includes(c.provenance)) continue;
       lib.appendJsonl(claimsFile, { v: 1, op: 'downgrade', claim: c.id, by: 'redaction', to: 'model-asserted',
         date: lib.today(), reason: 'source redacted: ' + (reason || 'unspecified') });
       downgraded.push(c.id);
@@ -80,14 +82,19 @@ function redactSource(vault, id, reason) {
     for (const t of touched) views.regenTopic(vault, t);
     views.regenIndex(vault);
     lib.gitCommit(vault, 'research: redact source ' + id);
+    // Honest about incompleteness: deleting the source files does NOT scrub
+    // copies of its text that live in append-only claim quotes or in immutable
+    // run artifacts (findings/synthesis). Report them; a true purge is manual.
     return { status: 'redacted', kind: 'source', id, removed, downgraded,
-      note: 'raw bytes remain in the vault git history — run git filter-repo for a true purge' };
+      residual: { quotedInClaims: quoteResidue, runArtifacts: Array.from(touched).map((t) => 'topics/' + t + '/runs/**') },
+      note: 'source text may persist in claim quotes (' + quoteResidue.length + ') and in immutable run findings/synthesis, plus raw bytes in git history — run git filter-repo and retract the listed claims for a true purge' };
   });
 }
 
 function main() {
   const id = process.argv[2];
   if (!id || id.startsWith('--')) die('usage: vault-redact.js <source-id | claim-id> [--vault <dir>] [--reason "<r>"]');
+  if (!lib.isSafeName(id)) die('unsafe id "' + id + '" — ids are alnum plus - _ . with no path separators or ".." (traversal refused)');
   const vault = lib.resolveVault(strFlag('--vault'));
   const reason = strFlag('--reason');
   const out = id.startsWith('clm_') ? redactClaim(vault, id, reason) : redactSource(vault, id, reason);

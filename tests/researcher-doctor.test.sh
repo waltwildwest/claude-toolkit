@@ -40,6 +40,7 @@ node "$W/wb-server.js" > "$W/wbport.txt" & WBSRV=$!
 trap 'kill $WBSRV 2>/dev/null' EXIT
 for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$W/wbport.txt" ] && break; sleep 0.2; done
 export WAYBACK_API="http://127.0.0.1:$(cat "$W/wbport.txt")"
+export RESEARCH_ALLOW_PRIVATE_HOSTS=1   # wayback fixture is on 127.0.0.1
 
 OLD=$(node -e 'const d=new Date(Date.now()-45*86400000); console.log(d.toISOString().slice(0,10))')
 
@@ -173,5 +174,13 @@ process.exit(r.fixed.wayback.kept === 1 && r.fixed.wayback.exists === 0 ? 0 : 1)
 # --schedule-snippet
 OUT=$(node "$D" --schedule-snippet)
 { has "$OUT" 'cron' && has "$OUT" '/research doctor'; } && ok "--schedule-snippet prints both paths" || no "snippet" "$OUT"
+
+# fetch-log compaction: a benign duplicate row (concurrent lock-free fetch) is deduped
+VF="$W/vaultF"; node "$I" --vault "$VF" >/dev/null 2>&1
+DUP='{"v":1,"source_id":"s1","source_path":"x","norm_url":"http://ex/a","extraction_sha256":"h1"}'
+printf '%s\n%s\n{"v":1,"source_id":"s2","source_path":"y","norm_url":"http://ex/b","extraction_sha256":"h2"}\n' "$DUP" "$DUP" > "$VF/sources/fetch-log.jsonl"
+OUT=$(node "$D" --vault "$VF" --no-network 2>/dev/null)
+node -e 'process.exit(JSON.parse(process.argv[1]).fixed.fetchLogDeduped === 1 ? 0 : 1)' "$OUT" && ok "doctor dedupes duplicate fetch-log rows" || no "fetchlog dedup" "$OUT"
+[ "$(grep -c . "$VF/sources/fetch-log.jsonl")" = "2" ] && ok "fetch-log compacted to unique rows" || no "fetchlog rows" "$(cat "$VF/sources/fetch-log.jsonl")"
 
 echo; echo "vault-doctor: $pass passed, $fail failed"; [ $fail -eq 0 ]

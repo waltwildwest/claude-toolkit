@@ -36,6 +36,7 @@ EOF
 
 # 1. redact the source: files gone, tombstone written, dependent downgraded
 OUT=$(node "$R" "$SID" --vault "$V" --reason "leaked credential"); rcode=$?
+REDACT_OUT="$OUT"
 { [ $rcode -eq 0 ] && has "$OUT" '"status":"redacted"' && has "$OUT" '"downgraded":["clm_dep"]' && has "$OUT" 'filter-repo'; } \
   && ok "source redacted with downgrade list" || no "redact" "rc=$rcode $OUT"
 [ ! -f "$V/sources/$SID.md" ] && [ ! -f "$V/sources/raw/aaaa1111.html" ] && ok "source files deleted" || no "files" ""
@@ -43,7 +44,9 @@ node -e '
 const t = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 process.exit(t.v === 1 && t.reason === "leaked credential" && t.removed.length === 2 ? 0 : 1);
 ' "$V/sources/$SID.tombstone.json" && ok "tombstone written" || no "tombstone" "$(cat "$V/sources/$SID.tombstone.json" 2>/dev/null)"
-[ "$(grep -c . "$V/sources/fetch-log.jsonl")" = "0" ] && ok "fetch-log entry dropped (refetch allowed)" || no "fetch-log" ""
+# fetch-log is left append-only (no destructive rewrite that would race a concurrent fetch);
+# the tombstone is what makes a refetch skip the dedupe (asserted in the fetch suite)
+[ "$(grep -c . "$V/sources/fetch-log.jsonl")" = "1" ] && ok "fetch-log left append-only (tombstone gates refetch)" || no "fetch-log" "$(cat "$V/sources/fetch-log.jsonl")"
 node -e '
 const lib = require(process.argv[1] + "/vault-lib.js");
 const { claims } = lib.foldClaims(lib.readJsonl(process.argv[2] + "/claims.jsonl").records);
@@ -70,5 +73,17 @@ process.exit(claims.get("clm_free").status === "retracted" ? 0 : 1);
 node "$R" clm_nope --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown claim rejected" || no "unknown claim" ""
 node "$R" not-a-source --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown source rejected" || no "unknown source" ""
 grep -c '"id":"clm_dep"' "$V/claims.jsonl" | grep -qx 1 && ok "claim records never edited in place" || no "append-only" ""
+
+# 5. path traversal in source id is refused before any fs op
+CANARY="$W/canary-outside.md"; echo secret > "$CANARY"
+node "$R" "../../canary-outside" --vault "$V" >/dev/null 2>&1; rc=$?
+{ [ $rc -eq 1 ] && [ -f "$CANARY" ]; } && ok "redact refuses ../ traversal, canary intact" || no "traversal" "rc=$rc exists=$([ -f "$CANARY" ] && echo y || echo n)"
+
+# residual reporting: redact is honest that quote text survives in the append-only claim
+node -e '
+const o = JSON.parse(process.argv[1]);
+if (!o.residual || !Array.isArray(o.residual.quotedInClaims) || !o.residual.quotedInClaims.includes("clm_dep")) process.exit(1);
+if (!/claim quotes/.test(o.note)) process.exit(2);
+' "$REDACT_OUT" && ok "redact reports residual quote copies" || no "residual" "rc=$? $REDACT_OUT"
 
 echo; echo "vault-redact: $pass passed, $fail failed"; [ $fail -eq 0 ]

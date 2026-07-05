@@ -116,9 +116,13 @@ function main() {
   let indexRecords = lib.readJsonl(path.join(vault, 'index.jsonl')).records;
   let claimRecords = lib.readJsonl(path.join(vault, 'claims.jsonl')).records;
   if (asOf) {
-    // time travel: both claims and events carry date; string compare works on ISO dates
-    indexRecords = indexRecords.filter((r) => r && String(r.date || '') <= asOf);
-    claimRecords = claimRecords.filter((r) => r && String(r.date || '') <= asOf);
+    // time travel: both claims and events carry date; string compare works on
+    // ISO dates. A record with NO date can't be placed in time, so it is
+    // EXCLUDED from an as-of view (an empty string sorts before every date and
+    // would otherwise leak dateless records into every past snapshot).
+    const upTo = (r) => r && typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(r.date) && r.date.slice(0, 10) <= asOf;
+    indexRecords = indexRecords.filter(upTo);
+    claimRecords = claimRecords.filter(upTo);
   }
   const index = lastPerSlug(indexRecords);
   const { claims } = lib.foldClaims(claimRecords);

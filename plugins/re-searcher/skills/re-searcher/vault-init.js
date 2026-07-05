@@ -95,7 +95,11 @@ const ALLOWLIST = `Add to ~/.claude/settings.json under "permissions" > "allow" 
   "Bash(node *vault-init.js*)",
   "Bash(node *vault-fetch.js*)",
   "Bash(node *vault-save.js*)",
-  "Bash(node *vault-search.js*)"
+  "Bash(node *vault-search.js*)",
+  "Bash(node *vault-harvest.js*)",
+  "Bash(node *vault-doctor.js*)",
+  "Bash(node *vault-redact.js*)",
+  "Bash(node *vault-export.js*)"
 `;
 
 function arg(name, dflt) {

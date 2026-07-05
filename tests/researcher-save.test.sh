@@ -315,4 +315,36 @@ if (!idx || idx.volatility !== "live") process.exit(1);
 if (!m || m.fresh !== false) process.exit(2);
 ' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V" && ok "absent volatility preserved; fresh defaults false" || no "vol preserve" "rc=$?"
 
+# --- stage 3 hardening: near-duplicate claims collapse to one ---
+RD5=$(node "$S" --new-run --topic dedup-topic --session dedup1 --vault "$V" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).runDir)')
+cat > "$RD5/plan.md" <<'PLAN'
+---
+topic: dedup-topic
+title: Dedup
+scope: general
+session: dedup1
+aliases: []
+questions: []
+---
+
+# Plan
+
+```manifest
+[{"role": "solo", "file": "findings/solo.md"}]
+```
+PLAN
+{ printf -- '---\nrole: solo\n---\n'; head -c 600 /dev/zero | tr '\0' 'x'; } > "$RD5/findings/solo.md"
+cat > "$RD5/claims-staged.jsonl" <<'CS'
+{"statement":"The sky is blue","provenance":"model-asserted"}
+{"statement":"The sky is blue ","provenance":"model-asserted"}
+{"statement":"the SKY is blue.","provenance":"model-asserted"}
+{"statement":"The sky is green","provenance":"model-asserted"}
+CS
+OUT=$(node "$S" "$RD5" --session dedup1 --vault "$V")
+node -e '
+const r = JSON.parse(process.argv[1]);
+if (r.claims.accepted !== 2) { console.error("accepted=" + r.claims.accepted + " (expected 2)"); process.exit(1); }
+if (r.claims.duplicates !== 2) { console.error("duplicates=" + r.claims.duplicates + " (expected 2)"); process.exit(2); }
+' "$OUT" && ok "near-duplicate claims collapse (blue x3 -> 1, green -> 1)" || no "near-dup" "$OUT"
+
 echo; echo "vault-save: $pass passed, $fail failed"; [ $fail -eq 0 ]

@@ -80,4 +80,16 @@ const fs = require("fs");
 process.exit(fs.existsSync(process.argv[1] + "/.lock") ? 1 : 0);
 ' "$V" && ok "no lock left, no mutation" || no "purity" ""
 
+# sweepSecrets scans beyond raw/*.html: extracted markdown + claim quotes
+printf -- '---\nv: 1\n---\nleaked ghp_%s here\n' "$(printf 'a%.0s' {1..35})" > "$V/sources/srcleak.md"
+printf '{"v":1,"id":"clm_leak","topic":"topic-a","statement":"has a key","quote":"AKIAABCDEFGHIJKLMNOP","provenance":"model-asserted","date":"2026-07-01"}\n' >> "$V/claims.jsonl"
+node -e '
+const sw = require(process.argv[1]);
+const hits = sw.sweepSecrets(process.argv[2]);
+const files = hits.map((h) => h.file);
+if (!files.some((f) => f === "sources/srcleak.md")) { console.error("missed extracted md: " + JSON.stringify(files)); process.exit(1); }
+if (!files.some((f) => f === "claims.jsonl#clm_leak")) { console.error("missed claim quote: " + JSON.stringify(files)); process.exit(2); }
+if (!files.some((f) => /raw\/aaaa1111/.test(f))) { console.error("lost raw coverage: " + JSON.stringify(files)); process.exit(3); }
+' "$SW" "$V" && ok "sweepSecrets covers extracted md + claim quotes + raw" || no "sweep scope" "rc=$?"
+
 echo; echo "doctor-sweeps: $pass passed, $fail failed"; [ $fail -eq 0 ]

@@ -23,6 +23,7 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { extract, assess } = require('./html-extract');
+const lib = require('./vault-lib');
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) re-searcher-vault-fetch/0.1';
 const MAX_REDIRECTS = 5;
@@ -48,6 +49,15 @@ function normalizeUrl(u) {
 }
 
 function fetchRaw(u, timeoutMs, maxBytes, redirects, cb) {
+  // SSRF guard on every hop — a redirect to a private/loopback address is the
+  // classic bypass, so the check runs here (fetchRaw recurses on 3xx).
+  lib.checkPublicHost(u, (blockErr) => {
+    if (blockErr) return cb(blockErr);
+    doFetch(u, timeoutMs, maxBytes, redirects, cb);
+  });
+}
+
+function doFetch(u, timeoutMs, maxBytes, redirects, cb) {
   let mod;
   try { mod = new URL(u).protocol === 'http:' ? require('http') : require('https'); }
   catch (e) { return cb(new Error('bad url: ' + u)); }
@@ -148,7 +158,14 @@ function main() {
         if (!line.trim()) continue;
         let rec; try { rec = JSON.parse(line); } catch (_e) { continue; } // skip-don't-abort (spec)
         if (rec.norm_url === normUrl && rec.extraction_sha256 === extSha) {
-          return emit(Object.assign(filled, { status: 'duplicate', sourceId: rec.source_id, sourcePath: rec.source_path }), 0);
+          // tombstone-aware dedupe: a redacted source's file is gone and a
+          // *.tombstone.json sits beside it — never dedupe INTO a deleted
+          // source (that would resurrect redacted content as a live hit). This
+          // is why redaction leaves fetch-log append-only: no destructive
+          // rewrite to race a concurrent lock-free fetch append.
+          const stillThere = rec.source_path && fs.existsSync(rec.source_path)
+            && !fs.existsSync(path.join(srcDir, String(rec.source_id) + '.tombstone.json'));
+          if (stillThere) return emit(Object.assign(filled, { status: 'duplicate', sourceId: rec.source_id, sourcePath: rec.source_path }), 0);
         }
       }
     }

@@ -159,4 +159,74 @@ if (c.status !== "active") process.exit(2);
 if (c.events.length !== 1) process.exit(3);
 ' "$LIB" && ok "foldClaims downgrade lowers provenance, keeps status" || no "downgrade fold" "rc=$?"
 
+# 13. isSafeName rejects traversal, accepts real ids/slugs
+node -e '
+const lib = require(process.argv[1]);
+const good = ["clm_abc123", "aaaa1111--host--slug", "mcp-auth", "topic_1", "a.b"];
+const bad = ["../etc/passwd", "a/b", "..", "a..b", "/abs", "x\\y", "", "a".repeat(201)];
+for (const g of good) if (!lib.isSafeName(g)) { console.error("rejected good: " + g); process.exit(1); }
+for (const b of bad) if (lib.isSafeName(b)) { console.error("accepted bad: " + JSON.stringify(b)); process.exit(2); }
+' "$LIB" && ok "isSafeName rejects traversal, accepts real ids" || no "isSafeName" "rc=$?"
+
+# 14. withLock stale-steal stampede: many writers racing a stale lock must not
+# lose an update (each does read-increment-write under the lock)
+cat > "$W/incr.js" <<'JS'
+const lib = require(process.argv[2]);
+const vault = process.argv[3], counter = process.argv[4];
+lib.withLock(vault, () => {
+  const fs = require('fs');
+  let n = 0;
+  try { n = parseInt(fs.readFileSync(counter, 'utf8'), 10) || 0; } catch (_e) {}
+  const end = Date.now() + 15; while (Date.now() < end) { /* widen the critical section */ }
+  fs.writeFileSync(counter, String(n + 1));
+});
+JS
+STAMPEDE_OK=1
+for trial in 1 2 3 4 5 6; do
+  mkdir -p "$V/.lock" 2>/dev/null; touch -t 202001010000 "$V/.lock"   # a fresh stale lock each trial
+  echo 0 > "$W/counter"
+  for k in 1 2 3 4 5 6 7 8 9 10; do node "$W/incr.js" "$LIB" "$V" "$W/counter" & done
+  wait
+  GOT=$(cat "$W/counter")
+  [ "$GOT" = "10" ] || { STAMPEDE_OK=0; echo "    trial $trial: counter=$GOT (expected 10 — lost update)"; }
+  rmdir "$V/.lock" 2>/dev/null
+done
+[ $STAMPEDE_OK -eq 1 ] && ok "withLock survives a 10-writer stale-lock stampede (no lost updates)" || no "stampede" "lost updates"
+
+# 15. isPrivateIp classifies loopback/private/link-local; public stays public
+node -e '
+const lib = require(process.argv[1]);
+const priv = ["127.0.0.1","10.0.0.5","172.16.9.9","192.168.1.1","169.254.169.254","::1","0.0.0.0","100.64.0.1","fe80::1","fd00::1","::ffff:127.0.0.1"];
+const pub = ["8.8.8.8","1.1.1.1","172.32.0.1","192.169.0.1","203.0.113.4","2606:4700::1111"];
+for (const p of priv) if (!lib.isPrivateIp(p)) { console.error("missed private: " + p); process.exit(1); }
+for (const p of pub) if (lib.isPrivateIp(p)) { console.error("flagged public: " + p); process.exit(2); }
+' "$LIB" && ok "isPrivateIp classifies private vs public" || no "isPrivateIp" "rc=$?"
+
+# 16. redaction is sticky: a verify AFTER a redaction downgrade must NOT re-promote
+node -e '
+const lib = require(process.argv[1]);
+const recs = [
+  {v:1, id:"clm_r", topic:"t", statement:"s", provenance:"verbatim-grounded", source:"src1"},
+  {v:1, op:"downgrade", claim:"clm_r", by:"redaction", to:"model-asserted", reason:"source redacted"},
+  {v:1, op:"verify", claim:"clm_r", by:"doctor"},
+];
+let c = lib.foldClaims(recs).claims.get("clm_r");
+if (c.provenance !== "model-asserted") { console.error("verify-after-redaction resurrected: " + c.provenance); process.exit(1); }
+// but a normal verify (no redaction) still promotes
+const ok = lib.foldClaims([
+  {v:1, id:"clm_v", topic:"t", statement:"s", provenance:"verbatim-grounded", source:"src1"},
+  {v:1, op:"verify", claim:"clm_v", by:"doctor"},
+]).claims.get("clm_v");
+if (ok.provenance !== "externally-verified") { console.error("normal verify broke: " + ok.provenance); process.exit(2); }
+' "$LIB" && ok "redaction downgrade is sticky against a later verify" || no "sticky redaction" "rc=$?"
+
+# 17. normStatement collapses trivial variants to one key
+node -e '
+const lib = require(process.argv[1]);
+const base = lib.normStatement("The sky is blue");
+const same = ["The sky is blue ", "  the SKY  is blue.", "The sky is blue!", "the sky is blue"];
+for (const s of same) if (lib.normStatement(s) !== base) { console.error("variant differs: " + JSON.stringify(s)); process.exit(1); }
+if (lib.normStatement("The sky is green") === base) process.exit(2);
+' "$LIB" && ok "normStatement collapses whitespace/case/punctuation" || no "normStatement" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

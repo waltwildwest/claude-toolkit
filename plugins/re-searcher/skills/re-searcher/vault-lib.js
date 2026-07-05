@@ -16,7 +16,48 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const dns = require('dns');
 const { execFileSync } = require('child_process');
+
+// SSRF guard: an agent-supplied research URL must not become a probe of the
+// loopback interface, RFC-1918 space, or the cloud metadata endpoint
+// (169.254.169.254). isPrivateIp classifies a resolved address;
+// checkPublicHost resolves the URL's host and refuses any private answer,
+// re-checkable per redirect hop. RESEARCH_ALLOW_PRIVATE_HOSTS=1 opts out
+// (CI fixtures live on 127.0.0.1; local self-hosted docs may too).
+function isPrivateIp(ip) {
+  const m = String(ip).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    if (a === 0 || a === 127 || a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;      // link-local incl. metadata
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    return false;
+  }
+  const lc = String(ip).toLowerCase();
+  if (lc === '::1' || lc === '::') return true;
+  if (lc.startsWith('::ffff:')) return isPrivateIp(lc.slice(7)); // v4-mapped
+  if (/^(fe8|fe9|fea|feb|fc|fd)/.test(lc)) return true;          // link-local / ULA
+  return false;
+}
+
+function checkPublicHost(urlStr, cb) {
+  if (process.env.RESEARCH_ALLOW_PRIVATE_HOSTS) return cb(null);
+  let host;
+  try { host = new URL(urlStr).hostname.replace(/^\[|\]$/g, ''); } catch (_e) { return cb(new Error('bad url: ' + urlStr)); }
+  const refuse = (ip) => new Error('refusing private/loopback/link-local address ' + ip + ' (SSRF guard; set RESEARCH_ALLOW_PRIVATE_HOSTS=1 to allow)');
+  const classify = (ips) => {
+    for (const ip of ips) if (isPrivateIp(ip)) return cb(refuse(ip));
+    cb(null);
+  };
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) return classify([host]);
+  dns.lookup(host, { all: true }, (err, addrs) => {
+    if (err) return cb(null); // let the real fetch surface the DNS failure
+    classify(addrs.map((a) => a.address));
+  });
+}
 
 function resolveVault(cliVal, opts) {
   const o = opts || {};
@@ -78,6 +119,24 @@ function slugify(s) {
 
 function sha8(s) { return crypto.createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 10); }
 
+// Containment guard for any CLI-supplied id/slug that becomes a path segment.
+// Vault ids are alnum plus - _ . (source ids carry '--', claim ids 'clm_',
+// topic slugs [a-z0-9-]); anything with a separator or '..' is a traversal
+// attempt and must never reach path.join. Callers die() loud on false.
+function isSafeName(s) {
+  return typeof s === 'string' && s.length > 0 && s.length <= 200
+    && /^[A-Za-z0-9._-]+$/.test(s) && !s.includes('..');
+}
+
+// Canonical form of a claim statement for dedupe: case-fold, collapse
+// whitespace, drop trailing punctuation. "The sky is blue", "the sky is
+// blue ", and "The sky is blue." collapse to one key, so trivial variants
+// don't register as distinct claims. Never stored — only a comparison key.
+function normStatement(s) {
+  return String(s == null ? '' : s).normalize('NFKC').toLowerCase()
+    .replace(/\s+/g, ' ').trim().replace(/[.,;:!?"'()\[\]]+$/g, '').trim();
+}
+
 function newId(prefix, seed, taken) {
   let id = prefix + '_' + sha8(seed);
   let n = 2;
@@ -115,6 +174,34 @@ function msleep(ms) {
 const LOCK_STALE_MS = 5 * 60 * 1000;
 const LOCK_WAIT_MS = 10 * 1000;
 
+// Steal a stale lock SAFELY. A blind rmdir+mkdir race lets two stealers each
+// remove a lock a third process legitimately re-created between their stat and
+// their rmdir — two holders, a lost update. Fix: serialize stealers behind a
+// steal-mutex dir, then RE-VERIFY the lock is still the same stale instance
+// (old mtime) immediately before removing it. A fresh lock has a current
+// mtime, so a stealer that lost the race sees "not stale" and backs off.
+function stealStaleLock(lockDir) {
+  const steal = lockDir + '.steal';
+  try { fs.mkdirSync(steal); }
+  catch (e) {
+    if (e.code === 'EEXIST') {
+      // a concurrent (or crashed) stealer holds it — clear only if itself stale
+      let sAge = null;
+      try { sAge = Date.now() - fs.statSync(steal).mtimeMs; } catch (_e2) { return; }
+      if (sAge > LOCK_STALE_MS) { try { fs.rmdirSync(steal); } catch (_e2) {} }
+    }
+    return; // let the caller loop and retry
+  }
+  try {
+    let age = null;
+    try { age = Date.now() - fs.statSync(lockDir).mtimeMs; } catch (_e) { return; } // already gone
+    if (age > LOCK_STALE_MS) {
+      process.stderr.write('vault-lib: stealing stale lock (' + Math.round(age / 1000) + 's old) at ' + lockDir + '\n');
+      try { fs.rmdirSync(lockDir); } catch (_e) {}
+    }
+  } finally { try { fs.rmdirSync(steal); } catch (_e) {} }
+}
+
 function withLock(vault, fn) {
   const lockDir = path.join(vault, '.lock');
   const deadline = Date.now() + LOCK_WAIT_MS;
@@ -125,8 +212,11 @@ function withLock(vault, fn) {
       let age = null;
       try { age = Date.now() - fs.statSync(lockDir).mtimeMs; } catch (_e) { continue; } // vanished — retry now
       if (age > LOCK_STALE_MS) {
-        process.stderr.write('vault-lib: stealing stale lock (' + Math.round(age / 1000) + 's old) at ' + lockDir + '\n');
-        try { fs.rmdirSync(lockDir); } catch (_e) {} // steal path skips the 10s deadline check — pathological only (needs a fresh stale lock every loop)
+        stealStaleLock(lockDir); // serialized + re-verified; may or may not free the dir
+        if (Date.now() > deadline) {
+          throw new Error('vault is locked (' + lockDir + ', ' + Math.round(age / 1000) + 's old) — another process is writing; retry, or remove the dir if you know it is dead');
+        }
+        msleep(5);
         continue;
       }
       if (Date.now() > deadline) {
@@ -155,9 +245,14 @@ function gitCommit(vault, message) {
 
 // Fold the append-only claims file: claim records (id, no op) get a derived
 // status; event records (op) mutate ONLY the folded view, never the file.
-// Verify promotes provenance; downgrade (script-only, written by vault-redact) lowers it.
+// Verify promotes provenance; downgrade (script-only, written by vault-redact)
+// lowers it. Redaction is STICKY: once a claim is downgraded by redaction its
+// evidence is gone, so a later verify can never re-promote it to
+// externally-verified — otherwise a stray verify would resurrect a redacted
+// claim as "verified" with no source to stand on.
 function foldClaims(records) {
   const claims = new Map();
+  const redacted = new Set();
   let skippedEvents = 0;
   for (const r of records) {
     if (r && r.id && !r.op) {
@@ -179,8 +274,12 @@ function foldClaims(records) {
         const other = claims.get(r.by);
         if (other) other.contradictedBy.push(r.claim);
       }
-    } else if (r.op === 'verify') c.provenance = 'externally-verified';
-    else if (r.op === 'downgrade') c.provenance = (typeof r.to === 'string' && r.to) || 'model-asserted';
+    } else if (r.op === 'verify') {
+      if (!redacted.has(r.claim)) c.provenance = 'externally-verified';
+    } else if (r.op === 'downgrade') {
+      c.provenance = (typeof r.to === 'string' && r.to) || 'model-asserted';
+      if (r.by === 'redaction') redacted.add(r.claim);
+    }
   }
   return { claims, skippedEvents };
 }
@@ -202,4 +301,4 @@ function resolveTerminal(claims, id, seen) {
   return [];
 }
 
-module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
+module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, isSafeName, normStatement, isPrivateIp, checkPublicHost, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
