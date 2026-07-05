@@ -70,7 +70,7 @@ if (dead.length !== 1 || dead[0].session !== "dead") process.exit(7);
 const census = sw.schemaCensus(V);
 const cc = census["claims.jsonl"];
 if (!cc || cc.skipped !== 1 || cc.aboveCurrent !== 1) process.exit(8);
-if (!sw.listRunDirs(V).length === 4) process.exit(9);
+if (sw.listRunDirs(V).length !== 4) process.exit(9);
 ' "$SW" "$SK" "$V" 2>/dev/null \
   && ok "all sweeps find exactly the seeded defects" || no "sweeps" "rc=$?"
 
