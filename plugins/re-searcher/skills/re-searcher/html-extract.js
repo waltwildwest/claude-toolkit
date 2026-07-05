@@ -6,7 +6,7 @@
 // Good on SSR pages (docs, blogs, GitHub, wikis); SPA shells and challenge
 // pages come out thin — that is what the confidence scorer (assess) is for.
 //
-//   node html-extract.js <file.html>          # JSON {title, markdown, textLength, linkDensity}
+//   node html-extract.js <file.html> [--assess]   # flag position free
 //
 // Module API: extract(html), assess(html, extracted)  [assess added in Task 2]
 
@@ -93,7 +93,7 @@ function extract(html) {
   md = md.replace(/<(p|div|section)\b[^>]*>/gi, '\n\n').replace(/<br\s*\/?>/gi, '\n');
   md = inline(md);
 
-  md = md.replace(/~~~(\d+)~~~/g, (_, i) => fences[Number(i)] || '');
+  md = md.replace(/~~~(\d+)~~~/g, (_, i) => '```\n' + (fences[Number(i)] || '') + '\n```');
   md = md.split('\n').map((l) => l.replace(/[ \t]+$/g, '')).join('\n')
     .replace(/\n{3,}/g, '\n\n').trim();
 
@@ -107,7 +107,13 @@ const CHALLENGE_RE = /just a moment|checking your browser|attention required|cf-
 function assess(html, ext) {
   const signals = [];
   let score = 1.0;
-  if (CHALLENGE_RE.test(String(html))) { signals.push('challenge-page'); score -= 0.6; }
+  // Structural challenge detection (Stage 0 amendment): a challenge signature
+  // only counts when it appears in the <title> or co-occurs with a thin
+  // extraction — a "Captcha" string in a 43K-char article's login chrome is
+  // not a challenge page.
+  const inTitle = CHALLENGE_RE.test(ext.title || '');
+  const inBody = CHALLENGE_RE.test(String(html));
+  if (inTitle || (inBody && ext.textLength < 400)) { signals.push('challenge-page'); score -= 0.6; }
   if (ext.textLength < 400) { signals.push('thin-text'); score -= 0.55; }
   if (ext.linkDensity > 0.5) { signals.push('link-farm'); score -= 0.3; }
   const rawLen = String(html).length;
@@ -117,9 +123,10 @@ function assess(html, ext) {
 }
 
 function main() {
-  const file = process.argv[2];
-  const wantAssess = process.argv.includes('--assess');
-  if (!file || file.startsWith('--')) { process.stderr.write('usage: html-extract.js <file.html> [--assess]\n'); process.exit(1); }
+  const argv = process.argv.slice(2);
+  const wantAssess = argv.includes('--assess');
+  const file = argv.find((a) => !a.startsWith('--'));
+  if (!file) { process.stderr.write('usage: html-extract.js <file.html> [--assess]\n'); process.exit(1); }
   let html;
   try { html = fs.readFileSync(file, 'utf8'); }
   catch (err) { process.stderr.write('cannot read ' + file + ': ' + (err.code || err.message) + '\n'); process.exit(1); }

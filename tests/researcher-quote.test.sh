@@ -73,4 +73,39 @@ node -e 'const r=JSON.parse(process.argv[1]); const q="Subagents store their wor
 printf 'anything' > "$W/q.txt"
 node "$Q" --quote-file "$W/q.txt" --source-file "$W/does-not-exist.md" >/dev/null 2>&1; [ $? -eq 2 ] && ok "missing source file -> exit 2" || no "missing source file" "$?"
 
+# --- Stage 1 amendments: markdown-stripped matching + link-safe windows ---
+
+cat > "$W/s.md" <<'EOF'
+# Redirects
+
+Use the **303 See Other** code with a [Location](https://mdn.example/loc) header after PUT requests.
+The `Cache-Control` header controls **revalidation** behavior for [shared caches](https://mdn.example/cache) everywhere.
+EOF
+
+# (a) plain transcription of marked-up source -> verified via stripped view
+printf 'Use the 303 See Other code with a Location header after PUT requests.' > "$W/q.txt"
+OUT=$(qv); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"method":"normalized"'; } && ok "markdown-stripped match" || no "stripped" "rc=$rcode $OUT"
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.sourceQuote.includes("**303 See Other**") && r.sourceQuote.includes("[Location](https://mdn.example/loc)") ? 0 : 1)' "$OUT" \
+  && ok "sourceQuote keeps real markup bytes" || no "markup bytes" "$OUT"
+
+# backticks + bold + link inside one quoted span
+printf 'The Cache-Control header controls revalidation behavior for shared caches everywhere.' > "$W/q.txt"
+OUT=$(qv); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"method":"normalized"'; } && ok "backtick+bold+link stripped match" || no "dense markup" "rc=$rcode $OUT"
+
+# (c) a match ending inside a link label must not clip mid-link
+printf 'code with a Location' > "$W/q.txt"
+OUT=$(qv); rcode=$?
+node -e 'const r=JSON.parse(process.argv[1]); if(!r.verified) process.exit(1); const q=r.sourceQuote; const opens=(q.match(/\[/g)||[]).length; const full=(q.match(/\]\([^)]*\)/g)||[]).length; process.exit(opens===full ? 0 : 1)' "$OUT" \
+  && ok "sourceQuote never clips mid-link" || no "link clip" "rc=$rcode $OUT"
+
+# regression: negation-flip must still be rejected (guards not weakened)
+cat > "$W/s.md" <<'EOF'
+The device flow is not required for public clients and should be avoided when the standard flow works.
+EOF
+printf 'The device flow is required for public clients and should be avoided when the standard flow works.' > "$W/q.txt"
+OUT=$(qv); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" '"method":"none"'; } && ok "negation flip still rejected" || no "negation" "rc=$rcode $OUT"
+
 echo; echo "quote-verify: $pass passed, $fail failed"; [ $fail -eq 0 ]

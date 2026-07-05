@@ -66,6 +66,36 @@
       "commands": [
         "./commands/route.md"
       ]
+    },
+    {
+      "name": "re-searcher",
+      "source": "./plugins/re-searcher",
+      "strict": false,
+      "version": "0.1.0",
+      "description": "A persistent research vault for Claude Code: every research run's plan, per-agent findings, cached sources and quote-verified claims are captured as inspectable markdown with provenance down to the transcript — and future research recalls dated claims to spot-check instead of re-deriving everything.",
+      "author": {
+        "name": "waltwildwest"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/waltwildwest/claude-toolkit",
+      "repository": "https://github.com/waltwildwest/claude-toolkit",
+      "keywords": [
+        "research",
+        "vault",
+        "provenance",
+        "claims",
+        "citations",
+        "sources",
+        "recall",
+        "knowledge-base"
+      ],
+      "category": "productivity",
+      "skills": [
+        "./skills/re-searcher"
+      ],
+      "commands": [
+        "./commands/research.md"
+      ]
     }
   ]
 }
