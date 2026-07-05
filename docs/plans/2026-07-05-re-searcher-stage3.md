@@ -2415,7 +2415,8 @@ node "$SKILL_DIR/vault-doctor.js" --vault "$VAULT"
 
 Its one JSON line: `fixed` (already applied — report, never redo), `report` (needs a
 human or vault-redact), `work` (YOUR four passes, below), `dropped` (cap overflows —
-mention when non-zero and re-run the doctor after clearing backlog).
+mention when non-zero; overflow contradiction pairs are LOST, not queued — the hwm
+advances past them, so raise --max-pairs BEFORE a big sweep, not after).
 
 Ground rules (non-negotiable):
 - The work report is the ONLY source of work items — never rescan the vault yourself.
