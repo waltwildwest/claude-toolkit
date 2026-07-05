@@ -44,9 +44,8 @@ by hand.
 > hands back to a human. That's the safety model working — and it's why the plugin path
 > exists. Each installer is ~50 lines; read it, then run it.
 
-> **Note:** the tool repos are private while each proves itself in real use; they go
-> public individually on their own merits. If a repo link 404s for you, that tool isn't
-> out yet.
+> **Note:** each tool goes public individually on its own merits — check the repo links
+> above for what's currently out.
 
 ## Principles
 
