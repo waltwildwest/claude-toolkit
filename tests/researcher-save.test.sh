@@ -171,11 +171,16 @@ grep -q 'mcp-auth-landscape' "$V/INDEX.md" && ok "INDEX regenerated" || no "INDE
 git -C "$V" log --oneline | grep -q "persist run" && ok "auto-commit" || no "git" "$(git -C "$V" log --oneline 2>&1)"
 grep -q '"kind":"save"' "$V/metrics.jsonl" && ok "metrics logged" || no "metrics" ""
 
-# human notes survive a re-persist; re-persist must not duplicate claims
+# human notes survive a re-persist; re-persist must not duplicate claims,
+# must not re-append events, and must not report phantom rejects
 printf 'precious-note-9000\n' >> "$V/topics/mcp-auth-landscape/topic.md"
 OUT=$(node "$S" "$RUN1" --vault "$V" --session 9f3c2ab1)
 grep -q 'precious-note-9000' "$V/topics/mcp-auth-landscape/topic.md" && ok "human notes preserved on re-persist" || no "notes" ""
 grep -c '"id":"clm_' "$V/claims.jsonl" | grep -q '^6$' && ok "re-persist dedupes claims" || no "dedupe" "$(grep -c '"id":"clm_' "$V/claims.jsonl")"
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.claims.rejected===1 && r.claims.events===0 && r.claims.duplicates===7 ? 0 : 1)' "$OUT" \
+  && ok "re-persist: only the still-invalid record re-rejects, event deduped" || no "re-persist tallies" "$OUT"
+grep -q 'unknown claim: ref:' "$RUN1/claims-rejected.jsonl" && no "phantom ref reject" "$(grep 'unknown claim' "$RUN1/claims-rejected.jsonl")" || ok "no phantom ref rejects"
+grep -c '"op":"contradict"' "$V/claims.jsonl" | grep -q '^1$' && ok "contradict registered exactly once" || no "event dup" "$(grep -c '"op":"contradict"' "$V/claims.jsonl")"
 
 # topic mismatch fails loud
 mkdir -p "$V/topics/other-topic/runs/2026-07-05a-zzzz/findings"

@@ -1412,6 +1412,13 @@ const r = JSON.parse(process.argv[1]);
 process.exit(r.ok && !("quote_method" in r.record) && !("note" in r.record) ? 0 : 1);
 ' "$OUT" && ok "quote_method/note smuggling blocked" || no "smuggle" "$OUT"
 
+# 10. a claim smuggling a non-string op is still registered as a foldable claim
+OUT=$(vc '{"statement":"op smuggle","op":5}')
+node -e '
+const r = JSON.parse(process.argv[1]);
+process.exit(r.ok && !("op" in r.record) ? 0 : 1);
+' "$OUT" && ok "non-string op stripped from claims" || no "op strip" "$OUT"
+
 echo; echo "claim-validate: $pass passed, $fail failed"; [ $fail -eq 0 ]
 ```
 
@@ -1495,9 +1502,12 @@ function validateClaim(rec, ctx) {
     found_by: rec.found_by === undefined ? 'unknown' : rec.found_by,
     tool: rec.tool === undefined ? 'unknown' : rec.tool,
   });
-  // validator-owned fields: staged values must never survive
+  // validator-owned fields: staged values must never survive. op is deleted
+  // too — a claim record smuggling a non-string op would be invisible to
+  // foldClaims (which treats any op-bearing record as an event).
   delete record.quote_method;
   delete record.note;
+  delete record.op;
   if (quoteMethod) record.quote_method = quoteMethod;
   if (note) record.note = note;
   return { ok: true, record, downgraded, quoteMethod };
@@ -1882,11 +1892,16 @@ grep -q 'mcp-auth-landscape' "$V/INDEX.md" && ok "INDEX regenerated" || no "INDE
 git -C "$V" log --oneline | grep -q "persist run" && ok "auto-commit" || no "git" "$(git -C "$V" log --oneline 2>&1)"
 grep -q '"kind":"save"' "$V/metrics.jsonl" && ok "metrics logged" || no "metrics" ""
 
-# human notes survive a re-persist; re-persist must not duplicate claims
+# human notes survive a re-persist; re-persist must not duplicate claims,
+# must not re-append events, and must not report phantom rejects
 printf 'precious-note-9000\n' >> "$V/topics/mcp-auth-landscape/topic.md"
 OUT=$(node "$S" "$RUN1" --vault "$V" --session 9f3c2ab1)
 grep -q 'precious-note-9000' "$V/topics/mcp-auth-landscape/topic.md" && ok "human notes preserved on re-persist" || no "notes" ""
 grep -c '"id":"clm_' "$V/claims.jsonl" | grep -q '^6$' && ok "re-persist dedupes claims" || no "dedupe" "$(grep -c '"id":"clm_' "$V/claims.jsonl")"
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.claims.rejected===1 && r.claims.events===0 && r.claims.duplicates===7 ? 0 : 1)' "$OUT" \
+  && ok "re-persist: only the still-invalid record re-rejects, event deduped" || no "re-persist tallies" "$OUT"
+grep -q 'unknown claim: ref:' "$RUN1/claims-rejected.jsonl" && no "phantom ref reject" "$(grep 'unknown claim' "$RUN1/claims-rejected.jsonl")" || ok "no phantom ref rejects"
+grep -c '"op":"contradict"' "$V/claims.jsonl" | grep -q '^1$' && ok "contradict registered exactly once" || no "event dup" "$(grep -c '"op":"contradict"' "$V/claims.jsonl")"
 
 # topic mismatch fails loud
 mkdir -p "$V/topics/other-topic/runs/2026-07-05a-zzzz/findings"
@@ -1991,14 +2006,19 @@ function main() {
 
 ```js
 function claimCtx(vault, runId, topic, date) {
-  const { claims: registry } = lib.foldClaims(lib.readJsonl(path.join(vault, 'claims.jsonl')).records);
+  const records = lib.readJsonl(path.join(vault, 'claims.jsonl')).records;
+  const { claims: registry } = lib.foldClaims(records);
+  const runClaims = Array.from(registry.values()).filter((c) => c.run === runId);
   return {
     vault, runId, topic, date,
     takenIds: new Set(registry.keys()),
     knownIds: new Set(registry.keys()),
     supersedeEdges: new Map(Array.from(registry.values()).map((c) => [c.id, c.supersededBy.slice()])),
-    // re-persist guard: claims this run already registered (by statement)
-    runStatements: new Set(Array.from(registry.values()).filter((c) => c.run === runId).map((c) => String(c.statement))),
+    // re-persist guards: claims this run already registered (kept with their
+    // ids so batch refs still resolve on a re-save) and events already present
+    runStatements: new Set(runClaims.map((c) => String(c.statement))),
+    runClaimIdByStatement: new Map(runClaims.map((c) => [String(c.statement), c.id])),
+    eventKeys: new Set(records.filter((r) => r && r.op).map((r) => r.op + '|' + r.claim + '|' + (r.by || ''))),
   };
 }
 
@@ -2074,7 +2094,13 @@ function persist(runDir) {
       }
       const refMap = new Map();
       for (const rec of claimsStaged) {
-        if (ctx.runStatements.has(String(rec.statement))) { duplicates++; continue; } // re-persist, already registered
+        if (ctx.runStatements.has(String(rec.statement))) {
+          // re-persist: already registered — refs must still resolve so
+          // staged events don't produce phantom rejects on a re-save
+          duplicates++;
+          if (rec.ref) refMap.set(String(rec.ref), ctx.runClaimIdByStatement.get(String(rec.statement)));
+          continue;
+        }
         const ref = rec.ref;
         const clean = Object.assign({}, rec);
         delete clean.ref;
@@ -2089,9 +2115,12 @@ function persist(runDir) {
       for (const rec of eventsStaged) {
         const resolved = Object.assign({}, rec, { claim: deref(rec.claim) },
           rec.by !== undefined ? { by: deref(rec.by) } : {});
+        const key = resolved.op + '|' + resolved.claim + '|' + (resolved.by || '');
+        if (ctx.eventKeys.has(key)) { duplicates++; continue; } // re-persist: event already registered
         const res = cv.validateEvent(resolved, ctx);
         if (!res.ok) { reject(res.reason, rec); continue; }
         lib.appendJsonl(path.join(vault, 'claims.jsonl'), res.record);
+        ctx.eventKeys.add(key);
         events++;
       }
     } else if (!light) {
@@ -2132,9 +2161,12 @@ function saveEvents(file) {
       let rec;
       try { rec = JSON.parse(line); }
       catch (_e) { rejectedList.push({ reason: 'unparseable JSON', line: line.slice(0, 200) }); continue; }
+      const key = rec.op + '|' + rec.claim + '|' + (rec.by || '');
+      if (ctx.eventKeys.has(key)) continue; // already registered — re-runs must not duplicate events
       const res = cv.validateEvent(rec, ctx);
       if (!res.ok) { rejectedList.push({ reason: res.reason, record: rec }); continue; }
       lib.appendJsonl(path.join(vault, 'claims.jsonl'), res.record);
+      ctx.eventKeys.add(key);
       applied++;
     }
     // regenerate every topic that has events (over-broad but always correct)
@@ -2354,9 +2386,12 @@ function addAlias(vault) {
   }
   // validate OUTSIDE the lock (reads are lock-free) — process.exit inside
   // withLock's fn would skip its finally and leak the lock dir for 5 minutes
-  const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
-  if (!prev) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
+  const probe = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
+  if (!probe) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
   lib.withLock(vault, () => {
+    // re-read INSIDE the lock: a concurrent persist may have appended a newer
+    // record for this slug; last-record-wins must not lose its merges
+    const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug) || probe;
     const aliases = Array.from(new Set([].concat(prev.aliases || [], [alias])));
     lib.appendJsonl(path.join(vault, 'index.jsonl'), Object.assign({}, prev, { aliases }));
     lib.gitCommit(vault, 'research: learn alias "' + alias + '" for ' + slug);

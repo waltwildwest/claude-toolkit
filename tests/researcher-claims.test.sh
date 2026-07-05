@@ -105,4 +105,11 @@ const r = JSON.parse(process.argv[1]);
 process.exit(r.ok && !("quote_method" in r.record) && !("note" in r.record) ? 0 : 1);
 ' "$OUT" && ok "quote_method/note smuggling blocked" || no "smuggle" "$OUT"
 
+# 10. a claim smuggling a non-string op is still registered as a foldable claim
+OUT=$(vc '{"statement":"op smuggle","op":5}')
+node -e '
+const r = JSON.parse(process.argv[1]);
+process.exit(r.ok && !("op" in r.record) ? 0 : 1);
+' "$OUT" && ok "non-string op stripped from claims" || no "op strip" "$OUT"
+
 echo; echo "claim-validate: $pass passed, $fail failed"; [ $fail -eq 0 ]

@@ -91,14 +91,19 @@ function checkStaging(runDir) {
 }
 
 function claimCtx(vault, runId, topic, date) {
-  const { claims: registry } = lib.foldClaims(lib.readJsonl(path.join(vault, 'claims.jsonl')).records);
+  const records = lib.readJsonl(path.join(vault, 'claims.jsonl')).records;
+  const { claims: registry } = lib.foldClaims(records);
+  const runClaims = Array.from(registry.values()).filter((c) => c.run === runId);
   return {
     vault, runId, topic, date,
     takenIds: new Set(registry.keys()),
     knownIds: new Set(registry.keys()),
     supersedeEdges: new Map(Array.from(registry.values()).map((c) => [c.id, c.supersededBy.slice()])),
-    // re-persist guard: claims this run already registered (by statement)
-    runStatements: new Set(Array.from(registry.values()).filter((c) => c.run === runId).map((c) => String(c.statement))),
+    // re-persist guards: claims this run already registered (kept with their
+    // ids so batch refs still resolve on a re-save) and events already present
+    runStatements: new Set(runClaims.map((c) => String(c.statement))),
+    runClaimIdByStatement: new Map(runClaims.map((c) => [String(c.statement), c.id])),
+    eventKeys: new Set(records.filter((r) => r && r.op).map((r) => r.op + '|' + r.claim + '|' + (r.by || ''))),
   };
 }
 
@@ -174,7 +179,13 @@ function persist(runDir) {
       }
       const refMap = new Map();
       for (const rec of claimsStaged) {
-        if (ctx.runStatements.has(String(rec.statement))) { duplicates++; continue; } // re-persist, already registered
+        if (ctx.runStatements.has(String(rec.statement))) {
+          // re-persist: already registered — refs must still resolve so
+          // staged events don't produce phantom rejects on a re-save
+          duplicates++;
+          if (rec.ref) refMap.set(String(rec.ref), ctx.runClaimIdByStatement.get(String(rec.statement)));
+          continue;
+        }
         const ref = rec.ref;
         const clean = Object.assign({}, rec);
         delete clean.ref;
@@ -189,9 +200,12 @@ function persist(runDir) {
       for (const rec of eventsStaged) {
         const resolved = Object.assign({}, rec, { claim: deref(rec.claim) },
           rec.by !== undefined ? { by: deref(rec.by) } : {});
+        const key = resolved.op + '|' + resolved.claim + '|' + (resolved.by || '');
+        if (ctx.eventKeys.has(key)) { duplicates++; continue; } // re-persist: event already registered
         const res = cv.validateEvent(resolved, ctx);
         if (!res.ok) { reject(res.reason, rec); continue; }
         lib.appendJsonl(path.join(vault, 'claims.jsonl'), res.record);
+        ctx.eventKeys.add(key);
         events++;
       }
     } else if (!light) {
@@ -233,9 +247,12 @@ function saveEvents(file) {
       let rec;
       try { rec = JSON.parse(line); }
       catch (_e) { rejectedList.push({ reason: 'unparseable JSON', line: line.slice(0, 200) }); continue; }
+      const key = rec.op + '|' + rec.claim + '|' + (rec.by || '');
+      if (ctx.eventKeys.has(key)) continue; // already registered — re-runs must not duplicate events
       const res = cv.validateEvent(rec, ctx);
       if (!res.ok) { rejectedList.push({ reason: res.reason, record: rec }); continue; }
       lib.appendJsonl(path.join(vault, 'claims.jsonl'), res.record);
+      ctx.eventKeys.add(key);
       applied++;
     }
     // regenerate every topic that has events (over-broad but always correct)

@@ -68,9 +68,12 @@ function validateClaim(rec, ctx) {
     found_by: rec.found_by === undefined ? 'unknown' : rec.found_by,
     tool: rec.tool === undefined ? 'unknown' : rec.tool,
   });
-  // validator-owned fields: staged values must never survive
+  // validator-owned fields: staged values must never survive. op is deleted
+  // too — a claim record smuggling a non-string op would be invisible to
+  // foldClaims (which treats any op-bearing record as an event).
   delete record.quote_method;
   delete record.note;
+  delete record.op;
   if (quoteMethod) record.quote_method = quoteMethod;
   if (note) record.note = note;
   return { ok: true, record, downgraded, quoteMethod };

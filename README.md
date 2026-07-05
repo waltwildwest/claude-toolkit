@@ -172,15 +172,18 @@ them, until a human resolves the conflict.
 ## Repository layout
 
 ```
-plugins/handoff/   skills/{handoff,pickup} + commands/handoff.md
-plugins/route/     skills/route/* + commands/route.md + hooks/hooks.json
-                   (model-aware routing, activation + learn hooks, cost report, cache)
+plugins/handoff/       skills/{handoff,pickup} + commands/handoff.md
+plugins/route/         skills/route/* + commands/route.md + hooks/hooks.json
+                       (model-aware routing, activation + learn hooks, cost report, cache)
+plugins/re-searcher/   skills/re-searcher/* (vault scripts + SKILL.md + references) + commands/research.md
+                       (research vault: fetch/extract, quote verification, claims registry, recall)
 .claude-plugin/marketplace.json   marketplace manifest; each plugin's source is its own subdir
-tests/*.test.sh    143 tests (routing, model-aware plan, activation, self-tuning, safety, cost, cache)
+tests/*.test.sh        327 checks across 17 suites (routing, activation, self-tuning, cost, cache,
+                       vault extract/quote/fetch/save/search/views/claims + a contract E2E)
 install.sh · LICENSE
 ```
 
-Each plugin lives in its own `plugins/<name>/` subdirectory, which is its marketplace `source`. That scoping is deliberate: hooks auto-load from a plugin's root, so keeping route's `hooks/` under `plugins/route/` means installing `handoff` alone never loads route's hooks. `install.sh` copies from both subdirs, so the copy and plugin paths stay in sync.
+Each plugin lives in its own `plugins/<name>/` subdirectory, which is its marketplace `source`. That scoping is deliberate: hooks auto-load from a plugin's root, so keeping route's `hooks/` under `plugins/route/` means installing `handoff` alone never loads route's hooks. `install.sh` copies from all plugin subdirs, so the copy and plugin paths stay in sync.
 
 ## Requirements
 

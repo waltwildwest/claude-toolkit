@@ -53,9 +53,12 @@ function addAlias(vault) {
   }
   // validate OUTSIDE the lock (reads are lock-free) — process.exit inside
   // withLock's fn would skip its finally and leak the lock dir for 5 minutes
-  const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
-  if (!prev) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
+  const probe = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
+  if (!probe) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
   lib.withLock(vault, () => {
+    // re-read INSIDE the lock: a concurrent persist may have appended a newer
+    // record for this slug; last-record-wins must not lose its merges
+    const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug) || probe;
     const aliases = Array.from(new Set([].concat(prev.aliases || [], [alias])));
     lib.appendJsonl(path.join(vault, 'index.jsonl'), Object.assign({}, prev, { aliases }));
     lib.gitCommit(vault, 'research: learn alias "' + alias + '" for ' + slug);
