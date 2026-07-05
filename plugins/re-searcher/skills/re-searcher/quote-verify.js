@@ -3,13 +3,16 @@
 // quote-verify — the deterministic half of "verbatim-grounded".
 // Checks that a claim's quote actually appears in a cached source extraction.
 // Match ladder: exact substring -> normalized substring (NFKC, straight
-// quotes, dashes, collapsed whitespace) -> fuzzy word-window relocation.
+// quotes, dashes, collapsed whitespace) -> markdown-stripped + normalized
+// substring -> fuzzy word-window relocation (all tiers operating in
+// stripped+normalized space).
 // Fuzzy tier: anchors a bounded window, then requires order-sensitive word
 // coverage (LCS >= 0.8 of quote words) plus matching negation-word counts
 // between quote and window — order/polarity-blind word-set coverage is
-// rejected. Residual risk: a meaning-preserving, high-overlap paraphrase
-// could still pass; this is a documented tradeoff (Task 7 manually inspects
-// every fuzzy match).
+// rejected. On any verified match at the stripped tier or fuzzy tier,
+// sourceQuote is widened to never clip mid-link. Residual risk:
+// a meaning-preserving, high-overlap paraphrase could still pass; this is
+// a documented tradeoff (Task 7 manually inspects every fuzzy match).
 // On any verified match the returned sourceQuote is EXACT SOURCE BYTES —
 // the source is ground truth, not the model's transcription of it.
 //
@@ -48,21 +51,86 @@ function sliceOriginal(source, map, start, endIncl) {
   return source.slice(map[start], map[endIncl] + 1);
 }
 
+// Markdown-stripped view (Stage 0 amendment: markup mismatch was the entire
+// observed claim-demotion class): [label](url) -> label, ** and backticks
+// removed — with an index map back to the original bytes so any match still
+// slices exact source truth.
+function buildStripped(s) {
+  const chars = [], map = [];
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === '[') {
+      const close = s.indexOf(']', i);
+      if (close !== -1 && close - i <= 300 && s[close + 1] === '(') {
+        const paren = s.indexOf(')', close + 2);
+        if (paren !== -1 && paren - close <= 600) {
+          for (let j = i + 1; j < close; j++) { chars.push(s[j]); map.push(j); }
+          i = paren + 1;
+          continue;
+        }
+      }
+    }
+    if (s[i] === '*' && s[i + 1] === '*') { i += 2; continue; }
+    if (s[i] === '`') { i += 1; continue; }
+    chars.push(s[i]); map.push(i);
+    i++;
+  }
+  return { text: chars.join(''), map };
+}
+
+// Normalized view of the stripped text, with maps composed so a normalized
+// index still resolves to an ORIGINAL source index.
+function buildStrippedNormalized(s) {
+  const st = buildStripped(s);
+  const nz = buildNormalized(st.text);
+  return { text: nz.text, map: nz.map.map((i) => st.map[i]) };
+}
+
+// Never clip a sourceQuote mid-link: if the byte span [a,b] cuts into a
+// [label](url) construct, widen to include the whole link.
+function wholeLinks(src, a, b) {
+  const linkRe = /\[[^\]\n]{0,300}\]\([^()\s]{0,600}\)/g;
+  let m;
+  while ((m = linkRe.exec(src)) !== null) {
+    const s0 = m.index, e0 = m.index + m[0].length - 1;
+    if (s0 > b) break;
+    if (e0 < a) continue;
+    if (s0 < a) a = s0;
+    if (e0 > b) b = e0;
+  }
+  return [a, b];
+}
+
 function verify(quote, source) {
   const q = String(quote), src = String(source);
   if (q.trim().length === 0) return { verified: false, method: 'none', sourceQuote: null };
   if (src.includes(q)) return { verified: true, method: 'exact', sourceQuote: q };
 
   const nq = buildNormalized(q), ns = buildNormalized(src);
-  const idx = ns.text.indexOf(nq.text);
+  let idx = ns.text.indexOf(nq.text);
   if (idx !== -1) {
     return { verified: true, method: 'normalized',
       sourceQuote: sliceOriginal(src, ns.map, idx, idx + nq.text.length - 1) };
   }
 
-  // Fuzzy: anchor on quote word n-grams found in the source word stream,
-  // shrink the window to the actual quote-word span inside it, then require
-  // order-sensitive coverage (LCS) plus matching negation-word counts.
+  // markdown-stripped tier
+  const sq = buildStrippedNormalized(q), ss = buildStrippedNormalized(src);
+  if (sq.text.length > 0) {
+    idx = ss.text.indexOf(sq.text);
+    if (idx !== -1) {
+      const [a, b] = wholeLinks(src, ss.map[idx], ss.map[idx + sq.text.length - 1]);
+      return { verified: true, method: 'normalized', sourceQuote: src.slice(a, b + 1) };
+    }
+  }
+
+  return fuzzyMatch(sq, ss, src);
+}
+
+// Fuzzy tier, operating in the stripped+normalized space. Body is the Stage 0
+// fuzzy logic verbatim (n-gram anchoring, window shrink, LCS >= 0.8, negation
+// parity, 2x window cap) — do NOT weaken any guard. Only the final slice is
+// new: it goes through wholeLinks so windows never clip mid-link.
+function fuzzyMatch(nq, ns, src) {
   const qWords = nq.text.toLowerCase().split(' ').filter(Boolean);
   if (qWords.length < 6) return { verified: false, method: 'none', sourceQuote: null };
   const N = Math.min(5, qWords.length);
@@ -72,7 +140,6 @@ function verify(quote, source) {
   let start = lowerNs.indexOf(firstGram);
   let endAnchor = lowerNs.lastIndexOf(lastGram);
   if (start === -1 && endAnchor === -1) {
-    // last resort: any interior 5-gram
     for (let i = 1; i + N <= qWords.length - 1 && start === -1; i++) {
       start = lowerNs.indexOf(qWords.slice(i, i + N).join(' '));
     }
@@ -83,10 +150,6 @@ function verify(quote, source) {
     ? endAnchor + lastGram.length - 1
     : Math.min(ns.text.length - 1, start + Math.floor(nq.text.length * 1.5));
 
-  // Shrink the window to the span actually covered by quote words.
-  // Strip surrounding punctuation for word-equality checks only — the
-  // window's start/end offsets still land on the raw (punctuated) tokens
-  // so the original source bytes get sliced correctly.
   const stripPunct = (w) => w.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
   const qWordsClean = qWords.map(stripPunct);
   const qWordSet = new Set(qWordsClean);
@@ -105,18 +168,17 @@ function verify(quote, source) {
   const windowWordsClean = lowerNs.slice(start, end + 1).split(' ').filter(Boolean).map(stripPunct);
   if (windowWordsClean.length > qWords.length * 3) return { verified: false, method: 'none', sourceQuote: null };
 
-  // Order-sensitive coverage: LCS of quote words vs window words.
   const lcsLen = lcsLength(qWordsClean, windowWordsClean);
   if (lcsLen / qWordsClean.length < 0.8) return { verified: false, method: 'none', sourceQuote: null };
 
-  // Negation parity: quote and window must agree on negation-word count.
   const negRe = /\b(not|never|no|none|cannot|can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|without)\b/gi;
   const qNegCount = (nq.text.match(negRe) || []).length;
   const windowText = lowerNs.slice(start, end + 1);
   const wNegCount = (windowText.match(negRe) || []).length;
   if (qNegCount !== wNegCount) return { verified: false, method: 'none', sourceQuote: null };
 
-  return { verified: true, method: 'fuzzy', sourceQuote: sliceOriginal(src, ns.map, start, end) };
+  const [a, b] = wholeLinks(src, ns.map[start], ns.map[end]);
+  return { verified: true, method: 'fuzzy', sourceQuote: src.slice(a, b + 1) };
 }
 
 // Longest common subsequence length between two word arrays (order-sensitive).
