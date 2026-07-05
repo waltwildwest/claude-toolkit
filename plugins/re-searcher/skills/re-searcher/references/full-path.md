@@ -16,9 +16,13 @@ including a resumed session after compaction.
 ## Briefing agents
 
 Emit `node "$SKILL_DIR/vault-init.js" --template task-spec` and fill it per agent: ONE core objective,
-an explicit scope boundary, the output file from the manifest, the run-dir path, and the
-vault dir. Budgets (Anthropic's): straightforward 1 agent / 3–10 calls; comparisons 2–4
-agents; open landscape 5–10 with an explicit stop-at-diminishing-returns line. Agents:
+an explicit scope boundary, the output file from the manifest, the run-dir path, the
+vault dir, and a hard budget line (`BUDGET: ≤12 web searches/fetches — ceiling, not quota;
+stop early once answered; never cut the vault-fetch of a source you cite`). Agent counts:
+straightforward 1 agent; comparisons 2–4; open landscape 3–5 (hard cap 10) with an
+explicit stop-at-diminishing-returns line. Dispatch grunt roles (search/fetch/write) on
+the cheap tier (haiku) — judgment-heavy axes on the standard tier — and tell every agent
+to batch independent searches/fetches in one parallel block. Agents:
 - fetch via vault-fetch so sources are cached and sourceIds exist for claims; on exit 2
   (low confidence) escalate: better URL → browser MCP if available → WebFetch, stored
   labeled `provenance: extraction` — never fake grounding
