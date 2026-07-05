@@ -108,7 +108,7 @@ function assess(html, ext) {
   const signals = [];
   let score = 1.0;
   if (CHALLENGE_RE.test(String(html))) { signals.push('challenge-page'); score -= 0.6; }
-  if (ext.textLength < 200) { signals.push('thin-text'); score -= 0.55; }
+  if (ext.textLength < 400) { signals.push('thin-text'); score -= 0.55; }
   if (ext.linkDensity > 0.5) { signals.push('link-farm'); score -= 0.3; }
   const rawLen = String(html).length;
   if (rawLen > 20000 && ext.textLength < rawLen / 200) { signals.push('script-shell'); score -= 0.3; }

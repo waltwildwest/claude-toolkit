@@ -24,6 +24,8 @@ cat > "$W/article.html" <<'EOF'
 <p>OAuth 2.1 is the <strong>required</strong> flow for remote servers &mdash; PKCE included.</p>
 <h2>Device flow</h2>
 <p>The device flow is optional. See <a href="https://spec.example/auth">the spec</a> for details.</p>
+<p>The authorization code flow is the most secure approach for server-side applications. It involves redirecting the user to an authorization server where they grant permission, and then exchanging an authorization code for an access token.</p>
+<p>When implementing MCP authentication, consider the security implications of token storage and refresh token rotation. Always validate the state parameter to prevent cross-site request forgery attacks during the OAuth flow.</p>
 <ul><li>First point</li><li>Second point</li></ul>
 <pre><code>GET /authorize?response_type=code</code></pre>
 </article>
