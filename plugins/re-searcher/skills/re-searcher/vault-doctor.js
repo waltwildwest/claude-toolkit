@@ -316,6 +316,28 @@ async function run() {
       current.map((c) => JSON.stringify(c)).join('\n') + (current.length ? '\n' : ''));
     f.claimsCurrent = current.length;
 
+    // fetch-log compaction: vault-fetch appends lock-free (off the critical
+    // path by design), so two concurrent fetches of one URL can leave a benign
+    // duplicate row. Dedupe them here (keep first per norm_url+extraction) the
+    // same way the index is compacted — self-healing, no hot-path lock.
+    const logFile = path.join(vault, 'sources', 'fetch-log.jsonl');
+    if (fs.existsSync(logFile)) {
+      const rows = lib.readJsonl(logFile).records;
+      const seenLog = new Set();
+      const dedupLog = [];
+      for (const r of rows) {
+        if (!r) continue;
+        const k = String(r.norm_url) + '|' + String(r.extraction_sha256);
+        if (seenLog.has(k)) continue;
+        seenLog.add(k);
+        dedupLog.push(r);
+      }
+      if (dedupLog.length < rows.length) {
+        lib.atomicWrite(logFile, dedupLog.map((r) => JSON.stringify(r)).join('\n') + (dedupLog.length ? '\n' : ''));
+      }
+      f.fetchLogDeduped = rows.length - dedupLog.length;
+    }
+
     const keepQ = [];
     for (const o of outcomes) {
       if (o.action === 'exists') { f.wayback.exists++; updateSourceWayback(vault, o.entry.source_id, 'exists', o.snap); }
