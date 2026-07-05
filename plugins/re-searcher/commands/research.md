@@ -13,7 +13,11 @@ Routing:
   then relay its provenanceLine (details: skill §7 + references/harvest.md).
 - `harvest <session-id>` → harvest that past session; `harvest --inbox` → drain every
   pending pointer. Report the JSON tallies in one line.
-- `doctor` → NOT BUILT YET (stage 3 — the librarian). Say so honestly.
+- `doctor` → the librarian: `node "$SKILL_DIR/vault-doctor.js" --vault "$VAULT"` (deterministic
+  sweep — fixes + work report JSON), then dispatch the LLM passes from that report per the
+  skill's references/doctor.md. One-line report: fixes + work backlog.
+- `export <slug>` → `node "$SKILL_DIR/vault-export.js" <slug> --vault "$VAULT"` — relay the
+  file path from the JSON (`--no-extracts` for links-only).
 
 As a plugin install this command is namespaced — `/re-searcher:research` — bare
 `/research` exists for install.sh copies. Plain-language research asks ("research X",

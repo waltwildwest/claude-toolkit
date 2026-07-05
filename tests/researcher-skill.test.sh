@@ -19,7 +19,7 @@ grep -q '^description: .' "$SK/SKILL.md" && ok "description set" || no "descript
 
 # every script the skill calls must exist and be mentioned
 ALL=1
-for s in vault-init.js vault-fetch.js vault-save.js vault-search.js vault-harvest.js; do
+for s in vault-init.js vault-fetch.js vault-save.js vault-search.js vault-harvest.js vault-doctor.js vault-export.js; do
   grep -q "$s" "$SK/SKILL.md" || { ALL=0; echo "    not referenced: $s"; }
   [ -f "$SK/$s" ] || { ALL=0; echo "    missing file: $s"; }
 done
@@ -31,7 +31,7 @@ grep -qi 'recall' "$SK/SKILL.md" && grep -q 'check-staging' "$SK/SKILL.md" && gr
 grep -q -- '--light' "$SK/SKILL.md" && ok "light path documented" || no "light" ""
 
 ALL=1
-for r in full-path claims correct harvest; do
+for r in full-path claims correct harvest doctor; do
   [ -f "$SK/references/$r.md" ] || { ALL=0; echo "    missing: references/$r.md"; }
   grep -q "references/$r.md" "$SK/SKILL.md" || { ALL=0; echo "    unreferenced: references/$r.md"; }
 done
@@ -41,7 +41,7 @@ C="$ROOT/plugins/re-searcher/commands/research.md"
 [ -f "$C" ] && ok "command file exists" || no "command" ""
 head -1 "$C" | grep -q '^---$' && grep -q '^description:' "$C" && ok "command frontmatter" || no "cmd fm" ""
 grep -q -- '--fresh' "$C" && grep -q 'correct' "$C" && ok "command routes subcommands" || no "routing" ""
-grep -qi 'stage 3' "$C" && ok "honest stage-3 stub (doctor)" || no "stubs" ""
+{ grep -q 'vault-doctor.js' "$C" && grep -q 'vault-export.js' "$C"; } && ok "doctor + export routed" || no "doctor/export" ""
 grep -q 'vault-harvest.js' "$C" && ok "command routes harvest" || no "cmd harvest" ""
 
 # --- registration (Task 12) ---
@@ -70,9 +70,19 @@ process.exit(stop.type === "command" && /inbox-note\.js/.test(stop.command) && /
 node -e '
 const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 const p = m.plugins.find((x) => x.name === "re-searcher");
-process.exit(p.version === "0.2.0" ? 0 : 1);
-' "$ROOT/.claude-plugin/marketplace.json" && ok "marketplace bumped to 0.2.0" || no "version" ""
+process.exit(p.version === "0.3.0" ? 0 : 1);
+' "$ROOT/.claude-plugin/marketplace.json" && ok "marketplace bumped to 0.3.0" || no "version" ""
 grep -q 'inbox-note' "$ROOT/install.sh" && ok "install.sh documents the hook" || no "install hook" ""
 grep -qi 'harvest' "$ROOT/README.md" && ok "README documents harvest" || no "README harvest" ""
+
+# --- stage 3 registration ---
+ALL=1
+for s in vault-doctor.js doctor-sweeps.js doctor-quality.js vault-redact.js vault-export.js; do
+  [ -f "$SK/$s" ] || { ALL=0; echo "    missing: $s"; }
+done
+[ $ALL -eq 1 ] && ok "stage-3 scripts shipped" || no "stage3 scripts" ""
+grep -q 'schedule-snippet' "$SK/references/doctor.md" && ok "doctor reference covers scheduling" || no "schedule ref" ""
+grep -q -- '--events <file> --doctor\|--events .* --doctor' "$SK/references/doctor.md" && ok "promotion path documented" || no "promotion doc" ""
+grep -qi 'librarian' "$ROOT/README.md" && ok "README documents the librarian" || no "README librarian" ""
 
 echo; echo "skill: $pass passed, $fail failed"; [ $fail -eq 0 ]

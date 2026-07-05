@@ -31,6 +31,27 @@ function projectsDir() { return process.env.CLAUDE_PROJECTS_DIR || path.join(os.
 // (verified: real dirs show '--' runs from spaces/underscores, not just /.)
 function cwdSlug(cwd) { return String(cwd).replace(/[^a-zA-Z0-9]/g, '-'); }
 
+// Subagent transcripts (stage-2 measured layout): sibling dir named after the
+// transcript stem, agent-*.jsonl inside. Mining is best-effort — a broken
+// subagent file never fails the harvest.
+function mineSubagents(transcript) {
+  const dir = path.join(path.dirname(transcript), path.basename(transcript, '.jsonl'), 'subagents');
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  let names;
+  try { names = fs.readdirSync(dir).sort(); }
+  catch (_e) { return out; } // unreadable subagents dir — main mining stands
+  for (const f of names) {
+    if (!/^agent-.*\.jsonl$/.test(f)) continue;
+    const p = path.join(dir, f);
+    try {
+      const m = mine(p);
+      if (m.messages) out.push({ file: f, path: p, mined: m });
+    } catch (_e) { /* unreadable subagent transcript — main mining stands */ }
+  }
+  return out;
+}
+
 function resolveTranscript(arg) {
   if (process.argv.includes('--latest')) {
     const dir = path.join(projectsDir(), cwdSlug(getFlag('--cwd') || process.cwd()));
@@ -69,7 +90,7 @@ function alreadyHarvested(vault, session) {
   return null;
 }
 
-function digest(mined, transcript) {
+function digest(mined, transcript, subs) {
   const L = ['## Summary', '', mined.summary ? mined.summary.trim() : '_No final assistant text found._', ''];
   L.push('## Files written during the session', '');
   if (!mined.writes.length) L.push('_None captured._');
@@ -82,6 +103,16 @@ function digest(mined, transcript) {
   L.push('', '## Source events', '');
   if (!mined.sources.length) L.push('_None captured._');
   for (const s of mined.sources) L.push('- ' + s.tool + ' — ' + (s.detail || '(no detail)') + ' (transcript:' + s.line + ')');
+  if (subs && subs.length) {
+    L.push('', '## Subagents (' + subs.length + ' mined)', '');
+    for (const s of subs) {
+      L.push('### ' + s.file, '');
+      if (s.mined.summary) L.push(s.mined.summary.trim().slice(0, 2000), '');
+      for (const w of s.mined.writes) L.push('- Write `' + w.file + '` (' + w.bytes + 'B · ' + s.file + ':' + w.line + ')');
+      for (const src of s.mined.sources) L.push('- ' + src.tool + ' — ' + (src.detail || '(no detail)') + ' (' + s.file + ':' + src.line + ')');
+      L.push('');
+    }
+  }
   L.push('', '## Provenance', '',
     '- transcript: ' + transcript,
     '- extraction: deterministic (transcript-mine); everything above is model output from that session — treat as model-asserted until the librarian verifies it (stage 3)');
@@ -94,6 +125,7 @@ function harvestOne(vault, transcript, opts) {
   const session = mined.sessionId || path.basename(transcript, '.jsonl');
   const existing = alreadyHarvested(vault, session);
   if (existing) return { status: 'already-harvested', existing, session };
+  const subs = mineSubagents(transcript);
 
   const topic = lib.slugify(opts.topic || path.basename(mined.cwd || '') || 'harvested-session');
   const title = opts.title || 'Harvest: ' + topic;
@@ -111,15 +143,17 @@ function harvestOne(vault, transcript, opts) {
   ].join('\n'));
   lib.atomicWrite(path.join(run.runDir, 'findings', 'harvest.md'), [
     '---', 'role: harvest', 'run: ' + run.runId, 'task: deterministic transcript harvest',
-    'date: ' + date, '---', '', '# Findings — harvest', '', digest(mined, transcript), '',
+    'date: ' + date, '---', '', '# Findings — harvest', '', digest(mined, transcript, subs), '',
   ].join('\n'));
   lib.atomicWrite(path.join(run.runDir, 'synthesis.md'),
     '# Synthesis (harvested)\n\n' + (mined.summary ? mined.summary.trim() : '_No final assistant text — digest only._') + '\n');
 
   let saved;
   try {
-    const save = execFileSync('node', [path.join(__dirname, 'vault-save.js'), run.runDir,
-      '--light', '--vault', vault, '--session', session, '--transcript', transcript], { encoding: 'utf8' });
+    const saveArgs = [path.join(__dirname, 'vault-save.js'), run.runDir,
+      '--light', '--vault', vault, '--session', session, '--transcript', transcript];
+    for (const s of subs) saveArgs.push('--transcript', s.path);
+    const save = execFileSync('node', saveArgs, { encoding: 'utf8' });
     saved = JSON.parse(save.trim().split('\n').pop());
   } catch (e) {
     // persist failed: the staged run has no lineage.json, so a retry will
@@ -129,7 +163,7 @@ function harvestOne(vault, transcript, opts) {
       orphanedRun: run.runDir };
   }
   return { status: 'harvested', session, runId: run.runId, topic: run.topic,
-    writes: mined.writes.length, sources: mined.sources.length,
+    writes: mined.writes.length, sources: mined.sources.length, subagents: subs.length,
     versionWarning: mined.versionWarning, provenanceLine: saved.provenanceLine };
 }
 
@@ -146,7 +180,7 @@ function drainInbox(vault) {
   const pointers = lib.readJsonl(path.join(vault, 'inbox.jsonl')).records.filter((r) => r && r.kind === 'pointer');
   const results = [];
   const done = [];
-  let harvested = 0, already = 0, missing = 0;
+  let harvested = 0, already = 0, missing = 0, errors = 0;
   for (const p of pointers) {
     if (!p.transcript || !fs.existsSync(p.transcript)) {
       missing++; done.push(p.session); results.push({ session: p.session, status: 'transcript-missing' });
@@ -156,9 +190,10 @@ function drainInbox(vault) {
     results.push(r);
     if (r.status === 'harvested') { harvested++; done.push(p.session); }
     else if (r.status === 'already-harvested') { already++; done.push(p.session); }
+    else if (r.status === 'error') errors++; // pointer KEPT — retried next drain, now visibly counted
   }
   if (done.length) removePointers(vault, done);
-  process.stdout.write(JSON.stringify({ drained: done.length, harvested, alreadyHarvested: already, missing, results }) + '\n');
+  process.stdout.write(JSON.stringify({ drained: done.length, harvested, alreadyHarvested: already, missing, errors, results }) + '\n');
 }
 
 function main() {

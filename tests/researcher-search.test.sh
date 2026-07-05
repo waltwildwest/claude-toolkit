@@ -93,4 +93,21 @@ OUT=$(node "$SR" quantum entanglement --vault "$V"); rcode=$?
 { [ $rcode -eq 2 ] && ! has "$OUT" 'unharvested'; } && ok "irrelevant pointers stay silent" || no "silent" "$OUT"
 grep -q '"inbox":\["sessk8s001x"\]' "$V/metrics.jsonl" && ok "breadcrumb logged to metrics" || no "metrics inbox" ""
 
+# --- stage 3: --as-of + --set-volatility ---
+OUT=$(node "$SR" mcp oauth --as-of "$OLD" --vault "$V"); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" "as-of $OLD" && has "$OUT" 'fresh (0d)'; } && ok "--as-of serves the historical view" || no "as-of hit" "rc=$rcode $OUT"
+OUT=$(node "$SR" mcp oauth --as-of 2020-01-01 --vault "$V"); rcode=$?
+[ $rcode -eq 2 ] && ok "--as-of before first run is a miss" || no "as-of miss" "rc=$rcode $OUT"
+node "$SR" mcp oauth --as-of "07/05/2026" --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "--as-of validates date format" || no "as-of fmt" ""
+OUT=$(node "$SR" --set-volatility mcp-auth stable --vault "$V"); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"volatility":"stable"'; } && ok "--set-volatility appends" || no "set-vol" "rc=$rcode $OUT"
+node -e '
+const fs = require("fs");
+const recs = fs.readFileSync(process.argv[1] + "/index.jsonl", "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+const last = recs.filter((r) => r.slug === "mcp-auth").pop();
+process.exit(last.volatility === "stable" && Array.isArray(last.aliases) && last.aliases.length >= 2 ? 0 : 1);
+' "$V" && ok "volatility recorded, prior fields preserved" || no "vol record" ""
+node "$SR" --set-volatility mcp-auth hourly --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "bad volatility rejected" || no "vol enum" ""
+node "$SR" --set-volatility nope-topic stable --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown slug rejected" || no "vol slug" ""
+
 echo; echo "vault-search: $pass passed, $fail failed"; [ $fail -eq 0 ]

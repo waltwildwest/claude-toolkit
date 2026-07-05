@@ -145,4 +145,18 @@ try { lib.allocateRun(v, "MCP Auth Landscape", "9f3c2ab1"); process.exit(5); }
 catch (e) { process.exit(/26 same-day/.test(e.message) ? 0 : 6); }
 ' "$LIB" "$V" && ok "allocateRun atomic + letter bump + throws on exhaustion" || no "allocateRun" "rc=$?"
 
+# 12. foldClaims: downgrade event lowers provenance, script-only op
+node -e '
+const lib = require(process.argv[1]);
+const { claims } = lib.foldClaims([
+  {v:1, id:"clm_dg1", topic:"t", statement:"s", provenance:"verbatim-grounded"},
+  {v:1, op:"downgrade", claim:"clm_dg1", by:"redaction", to:"model-asserted", reason:"source redacted: test"},
+  {v:1, op:"downgrade", claim:"clm_missing"},
+]);
+const c = claims.get("clm_dg1");
+if (!c || c.provenance !== "model-asserted") process.exit(1);
+if (c.status !== "active") process.exit(2);
+if (c.events.length !== 1) process.exit(3);
+' "$LIB" && ok "foldClaims downgrade lowers provenance, keeps status" || no "downgrade fold" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

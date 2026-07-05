@@ -173,8 +173,18 @@ Sessions you never ran through `/research` aren't lost either: a silent Stop hoo
 pointer into the vault inbox, and `/research save` (this session), `/research harvest
 <session>`, or `harvest --inbox` (bulk) mine transcripts into light runs after the fact —
 deterministically (Write payloads and source events with transcript:line pointers, plus
-the session's final summary), idempotently, and with no claims invented: the librarian
-(stage 3) does the verifying.
+the session's final summary), idempotently, and with no claims invented up front — the librarian mines and
+verifies them later.
+
+The vault maintains itself: `/research doctor` runs the deterministic librarian sweep
+(orphan/duplicate-run detection, quote re-verification, a secrets scan over raw captures,
+index compaction, wayback-queue drain, alias learning from recall misses, a generated
+DASHBOARD.md and a source/tool quality profile) and emits a work report that drives the
+LLM passes — provenance promotion (`verify` events), adversarial freshness checks on
+aging claims, claim mining from light runs, contradiction judging. `/research export
+<topic>` writes a shareable extraction+link markdown file (never raw HTML);
+`vault-redact.js` deletes a source honestly (tombstone + downgrade of dependent claims);
+`vault-search --as-of` time-travels the registry.
 
 ## Repository layout
 
@@ -186,7 +196,7 @@ plugins/re-searcher/   skills/re-searcher/* (vault scripts + SKILL.md + referenc
                        (research vault: fetch/extract, quote verification, claims registry, recall)
 .claude-plugin/marketplace.json   marketplace manifest; each plugin's source is its own subdir
 tests/*.test.sh        345 checks across 20 suites (routing, activation, self-tuning, cost, cache,
-                       vault extract/quote/fetch/save/search/views/claims/mine/inbox/harvest + a contract E2E)
+                       vault extract/quote/fetch/save/search/views/claims/mine/inbox/harvest/sweeps/quality/doctor/redact/export + contract E2Es)
 install.sh · LICENSE
 ```
 

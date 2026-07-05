@@ -7,10 +7,10 @@
 // All mutation happens under the advisory vault lock; every save auto-commits.
 //
 //   node vault-save.js <run-dir> [--vault <dir>] [--session <id>]
-//                      [--transcript <path>]... [--light]
+//                      [--transcript <path>]... [--light] [--fresh]
 //   node vault-save.js --new-run --topic <slug> [--session <id>] [--vault <dir>]
 //   node vault-save.js --check-staging <run-dir>
-//   node vault-save.js --events <file.jsonl> [--vault <dir>]
+//   node vault-save.js --events <file.jsonl> [--doctor] [--vault <dir>]
 //
 // stdout: one JSON line always. exit 0 ok (complete or partial claims),
 // 2 staging incomplete (--check-staging), 1 hard error.
@@ -107,6 +107,16 @@ function persist(runDir) {
   const date = lib.today();
   const warnings = [];
 
+  const VOLATILITY = ['stable', 'moving', 'live'];
+  let volatility = null;
+  if (fm.volatility !== undefined) {
+    volatility = String(fm.volatility);
+    if (!VOLATILITY.includes(volatility)) {
+      warnings.push('unknown volatility "' + volatility + '" (stable | moving | live) — keeping previous/default');
+      volatility = null;
+    }
+  }
+
   const result = lib.withLock(vault, () => {
     // ---- tier 1: registration that can never be held hostage by claims ----
     const staging = stagingReport(runDir);
@@ -135,6 +145,7 @@ function persist(runDir) {
       aliases: uniq([].concat((prevIdx && prevIdx.aliases) || [], fm.aliases || [])),
       questions: uniq([].concat((prevIdx && prevIdx.questions) || [], fm.questions || [])),
       scope: String(fm.scope || 'general'), run: runId, date,
+      volatility: volatility || (prevIdx && prevIdx.volatility) || 'moving',
     });
 
     lib.atomicWrite(path.join(runDir, 'lineage.json'), JSON.stringify({
@@ -203,6 +214,7 @@ function persist(runDir) {
     views.regenIndex(vault);
     lib.appendJsonl(path.join(vault, 'metrics.jsonl'), {
       v: 1, kind: 'save', ts: new Date().toISOString(), run: runId, topic, light,
+      fresh: process.argv.includes('--fresh'),
       accepted, rejected, downgraded, events, warnings: warnings.length,
     });
     const c = lib.gitCommit(vault, 'research: persist run ' + runId + ' ' + topic);
@@ -226,6 +238,7 @@ function saveEvents(file) {
   const out = lib.withLock(vault, () => {
     // runId/topic are inert here — events-only validation never registers claims
     const ctx = claimCtx(vault, 'events', null, lib.today());
+    if (process.argv.includes('--doctor')) ctx.doctor = true; // the ONLY doctor-powered path — persist never sets this
     let applied = 0;
     const rejectedList = [];
     for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
@@ -262,7 +275,7 @@ function main() {
   if (ev) return saveEvents(ev);
   const runDir = process.argv[2];
   if (!runDir || runDir.startsWith('--')) {
-    die('usage: vault-save.js <run-dir> [--vault <dir>] [--session <id>] [--transcript <p>]... [--light] | --new-run --topic <slug> | --check-staging <run-dir> | --events <file>');
+    die('usage: vault-save.js <run-dir> [--vault <dir>] [--session <id>] [--transcript <p>]... [--light] [--fresh] | --new-run --topic <slug> | --check-staging <run-dir> | --events <file> [--doctor]');
   }
   return persist(path.resolve(runDir));
 }

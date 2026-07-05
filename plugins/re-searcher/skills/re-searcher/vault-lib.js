@@ -126,7 +126,7 @@ function withLock(vault, fn) {
       try { age = Date.now() - fs.statSync(lockDir).mtimeMs; } catch (_e) { continue; } // vanished — retry now
       if (age > LOCK_STALE_MS) {
         process.stderr.write('vault-lib: stealing stale lock (' + Math.round(age / 1000) + 's old) at ' + lockDir + '\n');
-        try { fs.rmdirSync(lockDir); } catch (_e) {}
+        try { fs.rmdirSync(lockDir); } catch (_e) {} // steal path skips the 10s deadline check — pathological only (needs a fresh stale lock every loop)
         continue;
       }
       if (Date.now() > deadline) {
@@ -155,6 +155,7 @@ function gitCommit(vault, message) {
 
 // Fold the append-only claims file: claim records (id, no op) get a derived
 // status; event records (op) mutate ONLY the folded view, never the file.
+// Verify promotes provenance; downgrade (script-only, written by vault-redact) lowers it.
 function foldClaims(records) {
   const claims = new Map();
   let skippedEvents = 0;
@@ -179,6 +180,7 @@ function foldClaims(records) {
         if (other) other.contradictedBy.push(r.claim);
       }
     } else if (r.op === 'verify') c.provenance = 'externally-verified';
+    else if (r.op === 'downgrade') c.provenance = (typeof r.to === 'string' && r.to) || 'model-asserted';
   }
   return { claims, skippedEvents };
 }

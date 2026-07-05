@@ -246,4 +246,73 @@ OUT=$(node "$S" "$RUNE" --vault "$V" --light 2>/dev/null); rcode=$?
 [ -d "$V/.lock" ] && no "lock released after throw" "still held" || ok "lock released after throw"
 rm -rf "$V/topics/err-topic"
 
+# --- stage 3: --events --doctor (provenance promotion) ---
+
+# doctor-applied verify promotes provenance end-to-end; plain --events still rejects
+CID=$(node -e '
+const lib = require(process.argv[1]);
+const recs = lib.readJsonl(process.argv[2] + "/claims.jsonl").records;
+const c = recs.find((r) => r.id && !r.op);
+process.stdout.write(c ? c.id : "");
+' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V")
+[ -n "$CID" ] || no "doctor verify precondition" "no claim found in registry"
+printf '{"op":"verify","claim":"%s","by":"doctor","reason":"quote re-verified"}\n' "$CID" > "$W/verify-events.jsonl"
+OUT=$(node "$S" --events "$W/verify-events.jsonl" --vault "$V"); rcode=$?
+has "$OUT" '"applied":0' && ok "plain --events still rejects verify" || no "verify gate" "rc=$rcode $OUT"
+OUT=$(node "$S" --events "$W/verify-events.jsonl" --vault "$V" --doctor); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"applied":1'; } && ok "--doctor applies verify" || no "doctor apply" "rc=$rcode $OUT"
+node -e '
+const lib = require(process.argv[1]);
+const { claims } = lib.foldClaims(lib.readJsonl(process.argv[2] + "/claims.jsonl").records);
+const c = claims.get(process.argv[3]);
+process.exit(c && c.provenance === "externally-verified" ? 0 : 1);
+' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V" "$CID" \
+  && ok "verify event promotes provenance in the fold" || no "promotion fold" ""
+OUT=$(node "$S" --events "$W/verify-events.jsonl" --vault "$V" --doctor)
+has "$OUT" '"applied":0' && ok "doctor re-apply dedupes (idempotent)" || no "verify dedupe" "$OUT"
+
+# --- stage 3: volatility + --fresh ---
+R3=$(node "$S" --new-run --topic vol-topic --session volt1 --vault "$V")
+RD3=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).runDir)' "$R3")
+cat > "$RD3/plan.md" <<'EOF'
+---
+topic: vol-topic
+title: Volatility test
+scope: general
+volatility: live
+session: volt1
+aliases: []
+questions: []
+---
+
+# Plan
+
+```manifest
+[{"role": "solo", "file": "findings/solo.md"}]
+```
+EOF
+{ printf -- '---\nrole: solo\n---\n'; head -c 600 /dev/zero | tr '\0' 'x'; } > "$RD3/findings/solo.md"
+OUT=$(node "$S" "$RD3" --light --fresh --session volt1 --vault "$V"); rcode=$?
+[ $rcode -eq 0 ] || no "vol persist" "rc=$rcode $OUT"
+node -e '
+const lib = require(process.argv[1]);
+const idx = lib.readJsonl(process.argv[2] + "/index.jsonl").records.filter((r) => r.slug === "vol-topic").pop();
+process.exit(idx && idx.volatility === "live" ? 0 : 1);
+' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V" && ok "plan volatility lands in index" || no "volatility" ""
+grep '"kind":"save"' "$V/metrics.jsonl" | grep -q '"fresh":true' && ok "--fresh recorded in save metric" || no "fresh metric" ""
+
+# a second run WITHOUT volatility preserves the previous value (never resets to moving)
+R4=$(node "$S" --new-run --topic vol-topic --session volt2 --vault "$V")
+RD4=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).runDir)' "$R4")
+sed -e 's/^volatility: live$//' -e 's/volt1/volt2/' "$RD3/plan.md" > "$RD4/plan.md"
+cp "$RD3/findings/solo.md" "$RD4/findings/solo.md"
+node "$S" "$RD4" --light --session volt2 --vault "$V" >/dev/null
+node -e '
+const lib = require(process.argv[1]);
+const idx = lib.readJsonl(process.argv[2] + "/index.jsonl").records.filter((r) => r.slug === "vol-topic").pop();
+const m = lib.readJsonl(process.argv[2] + "/metrics.jsonl").records.filter((r) => r.kind === "save").pop();
+if (!idx || idx.volatility !== "live") process.exit(1);
+if (!m || m.fresh !== false) process.exit(2);
+' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V" && ok "absent volatility preserved; fresh defaults false" || no "vol preserve" "rc=$?"
+
 echo; echo "vault-save: $pass passed, $fail failed"; [ $fail -eq 0 ]

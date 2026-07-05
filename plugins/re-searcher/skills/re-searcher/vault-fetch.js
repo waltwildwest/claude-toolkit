@@ -9,12 +9,14 @@
 //   node vault-fetch.js <url> [--vault <dir>] [--timeout <ms>] [--max-bytes <n>]
 //
 // stdout: one JSON line {status, url, finalUrl, sourceId, sourcePath, rawPath,
-//         title, textLength, score, signals, extractionHash}
+//         title, textLength, score, signals, extractionHash, wayback}
 // status: stored | duplicate | low-confidence | fetch-error
 // exit:   0 stored/duplicate, 2 low-confidence, 1 fetch-error/usage
 //
 // Storage: sources/<hash8>--<host>--<slug>.md (+ raw at sources/raw/<hash8>.html)
 // and an append to sources/fetch-log.jsonl (Stage 0 dedupe lookup).
+// Env seams: WAYBACK=off disables wayback entirely; WAYBACK_API=<base> overrides
+// both availability and save endpoints; WAYBACK_TIMEOUT_MS (default 3000).
 
 const fs = require('fs');
 const path = require('path');
@@ -24,6 +26,11 @@ const { extract, assess } = require('./html-extract');
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) re-searcher-vault-fetch/0.1';
 const MAX_REDIRECTS = 5;
+const WAYBACK_OFF = (process.env.WAYBACK || '').toLowerCase() === 'off';
+const WB_BASE = process.env.WAYBACK_API || null;
+const WB_AVAIL = (WB_BASE || 'https://archive.org') + '/wayback/available?url=';
+const WB_SAVE = (WB_BASE || 'https://web.archive.org') + '/save/';
+const WB_TIMEOUT = Number(process.env.WAYBACK_TIMEOUT_MS || 3000);
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(name);
@@ -83,6 +90,31 @@ function atomicWrite(file, data) {
 
 function emit(obj, code) { process.stdout.write(JSON.stringify(obj) + '\n'); process.exit(code); }
 
+// Wayback (spec Pillar 2): availability-check first (snapshot exists -> record
+// it); else fire the save with a short cap; on failure/429 append to
+// wayback-queue.jsonl, drained slowly by the doctor. NEVER on the critical
+// path: every error degrades to a queue entry, the fetch result stands.
+function waybackStep(vault, normUrl, sourceId, cb) {
+  if (WAYBACK_OFF) return cb({ status: 'off' });
+  fetchRaw(WB_AVAIL + encodeURIComponent(normUrl), WB_TIMEOUT, 512 * 1024, 0, (err, res) => {
+    if (!err) {
+      try {
+        const j = JSON.parse(res.body.toString('utf8'));
+        const c = j && j.archived_snapshots && j.archived_snapshots.closest;
+        if (c && c.available && c.url) return cb({ status: 'exists', snapshot: String(c.url) });
+      } catch (_e) { /* unparseable availability answer — fall through to save */ }
+    }
+    fetchRaw(WB_SAVE + normUrl, WB_TIMEOUT, 512 * 1024, 0, (err2) => {
+      if (!err2) return cb({ status: 'requested' });
+      try {
+        fs.appendFileSync(path.join(vault, 'wayback-queue.jsonl'),
+          JSON.stringify({ v: 1, url: normUrl, source_id: sourceId, ts: new Date().toISOString(), attempts: 0 }) + '\n');
+        return cb({ status: 'queued' });
+      } catch (_e) { return cb({ status: 'failed' }); }
+    });
+  });
+}
+
 function main() {
   const url = process.argv[2];
   if (!url || url.startsWith('--')) { process.stderr.write('usage: vault-fetch.js <url> [--vault <dir>] [--timeout <ms>] [--max-bytes <n>]\n'); process.exit(1); }
@@ -93,7 +125,7 @@ function main() {
   }
   const timeoutMs = Number(arg('--timeout', 10000));
   const maxBytes = Number(arg('--max-bytes', 5 * 1024 * 1024));
-  const base = { status: null, url, finalUrl: null, sourceId: null, sourcePath: null, rawPath: null, title: null, textLength: null, score: null, signals: [], extractionHash: null };
+  const base = { status: null, url, finalUrl: null, sourceId: null, sourcePath: null, rawPath: null, title: null, textLength: null, score: null, signals: [], extractionHash: null, wayback: null };
 
   fetchRaw(url, timeoutMs, maxBytes, 0, (err, res) => {
     if (err) return emit(Object.assign(base, { status: 'fetch-error', signals: [String(err.message)] }), 1);
@@ -126,15 +158,20 @@ function main() {
     const id = hash8 + '--' + slugify(host) + '--' + slugify(ext.title || url);
     const sourcePath = path.join(srcDir, id + '.md');
     const rawPath = path.join(rawDir, hash8 + '.html');
-    const fetched = new Date().toISOString();
-    const fm = ['---', 'v: 1', 'kind: web', 'url: ' + url, 'final_url: ' + res.finalUrl,
-      'fetched: ' + fetched, 'title: ' + JSON.stringify(ext.title), 'raw_sha256: ' + rawSha,
-      'extraction_sha256: ' + extSha, 'score: ' + conf.score,
-      'signals: ' + JSON.stringify(conf.signals), 'auth_context: public', '---', ''].join('\n');
-    atomicWrite(sourcePath, fm + ext.markdown + '\n');
-    atomicWrite(rawPath, res.body);
-    fs.appendFileSync(logFile, JSON.stringify({ v: 1, source_id: id, source_path: sourcePath, norm_url: normUrl, url, final_url: res.finalUrl, raw_sha256: rawSha, extraction_sha256: extSha, fetched, score: conf.score }) + '\n');
-    emit(Object.assign(filled, { status: 'stored', sourceId: id, sourcePath, rawPath }), 0);
+    waybackStep(vault, normUrl, id, (wb) => {
+      const fetched = new Date().toISOString();
+      const fmLines = ['---', 'v: 1', 'kind: web', 'url: ' + url, 'final_url: ' + res.finalUrl,
+        'fetched: ' + fetched, 'title: ' + JSON.stringify(ext.title), 'raw_sha256: ' + rawSha,
+        'extraction_sha256: ' + extSha, 'score: ' + conf.score,
+        'signals: ' + JSON.stringify(conf.signals), 'auth_context: public',
+        'wayback: ' + wb.status];
+      if (wb.snapshot) fmLines.push('wayback_url: ' + wb.snapshot);
+      const fm = fmLines.concat(['---', '']).join('\n');
+      atomicWrite(sourcePath, fm + ext.markdown + '\n');
+      atomicWrite(rawPath, res.body);
+      fs.appendFileSync(logFile, JSON.stringify({ v: 1, source_id: id, source_path: sourcePath, norm_url: normUrl, url, final_url: res.finalUrl, raw_sha256: rawSha, extraction_sha256: extSha, fetched, score: conf.score, wayback: wb.status }) + '\n');
+      emit(Object.assign(filled, { status: 'stored', sourceId: id, sourcePath, rawPath, wayback: wb.status }), 0);
+    });
   });
 }
 

@@ -103,4 +103,28 @@ V7="$W/vault7"; node "$I" --vault "$V7" >/dev/null 2>&1
 OUT=$(node "$H" --latest --cwd "/Users/w/my_proj name" --vault "$V7" --topic slug-smoke); rcode=$?
 { [ $rcode -eq 0 ] && has "$OUT" '"session":"sessuscre001"'; } && ok "--latest slugs non-alnum cwd chars" || no "cwd slug" "rc=$rcode $OUT"
 
+# --- stage 3: subagent mining ---
+sed 's/sessharv0001/sessub00001/g' "$T" > "$PDIR/sessub00001.jsonl"
+mkdir -p "$PDIR/sessub00001/subagents"
+cat > "$PDIR/sessub00001/subagents/agent-a01.jsonl" <<'EOF'
+{"version":"2.1.197","sessionId":"agent-a01","cwd":"/Users/w/proj/mcp-auth-research"}
+{"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/tmp/sub-finding.md","content":"Subagent dug up the OAuth details here."}}]}}
+{"message":{"role":"assistant","content":[{"type":"text","text":"Subagent final: OAuth 2.1 with PKCE is mandatory for remote MCP servers, full details written to the findings file."}]}}
+EOF
+V8="$W/vault8"; node "$I" --vault "$V8" >/dev/null 2>&1
+OUT=$(node "$H" sessub00001 --vault "$V8" --topic sub-smoke); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"subagents":1'; } && ok "subagent transcript mined" || no "subagents" "rc=$rcode $OUT"
+FH=$(find "$V8/topics/sub-smoke" -name harvest.md)
+grep -q '## Subagents (1 mined)' "$FH" && grep -q 'agent-a01' "$FH" && grep -q 'sub-finding.md' "$FH" \
+  && ok "digest folds subagent writes" || no "sub digest" "$(grep -n Subagent "$FH")"
+find "$V8/topics/sub-smoke" -name 'agent-a01.jsonl.gz' | grep -q . && ok "subagent transcript gzipped into the run" || no "sub gz" "$(find "$V8/topics/sub-smoke" -name '*.gz')"
+
+# --- stage 3: drain errors tally ---
+V9="$W/vault9"; node "$I" --vault "$V9" >/dev/null 2>&1
+printf 'this is not a transcript\n' > "$W/garbage.jsonl"
+printf '{"v":1,"kind":"pointer","session":"badsess","transcript":"%s","topicGuess":"junk"}\n' "$W/garbage.jsonl" >> "$V9/inbox.jsonl"
+OUT=$(node "$H" --inbox --vault "$V9" 2>/dev/null); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"errors":1' && has "$OUT" '"drained":0'; } && ok "drain counts errors" || no "errors tally" "rc=$rcode $OUT"
+[ "$(grep -c . "$V9/inbox.jsonl")" = "1" ] && ok "error pointer kept for retry" || no "pointer kept" ""
+
 echo; echo "vault-harvest: $pass passed, $fail failed"; [ $fail -eq 0 ]

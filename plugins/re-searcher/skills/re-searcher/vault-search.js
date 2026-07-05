@@ -7,11 +7,12 @@
 // and logs every recall to metrics.jsonl unconditionally (audit detail
 // belongs in the log; chat gets one line unless something is anomalous).
 //
-//   node vault-search.js <terms...> [--vault <dir>] [--project <slug>] [--json]
+//   node vault-search.js <terms...> [--vault <dir>] [--project <slug>] [--as-of YYYY-MM-DD] [--json]
 //   node vault-search.js --add-alias <slug> <alias> [--vault <dir>]
+//   node vault-search.js --set-volatility <slug> <stable|moving|live> [--vault <dir>]
 //
 // exit: 0 hit(s), 2 no hits (near-misses printed), 1 vault missing/usage.
-// Reads are lock-free; --add-alias mutates under the lock and auto-commits.
+// Reads are lock-free; --add-alias and --set-volatility mutate under the lock and auto-commit.
 
 const path = require('path');
 const lib = require('./vault-lib');
@@ -24,10 +25,11 @@ function lastPerSlug(records) {
   return m;
 }
 
-function freshness(dateStr) {
+function freshness(dateStr, nowMs) {
   const t = Date.parse(String(dateStr));
   if (Number.isNaN(t)) return 'age unknown — spot-check before trusting';
-  const d = Math.max(0, Math.floor((Date.now() - t) / 86400000));
+  const now = typeof nowMs === 'number' && !Number.isNaN(nowMs) ? nowMs : Date.now();
+  const d = Math.max(0, Math.floor((now - t) / 86400000));
   return d <= 30 ? 'fresh (' + d + 'd)' : 'aging (' + d + 'd) — spot-check before trusting';
 }
 
@@ -67,23 +69,59 @@ function addAlias(vault) {
   process.stdout.write(JSON.stringify({ ok: true, slug, alias }) + '\n');
 }
 
+const VOLATILITY = ['stable', 'moving', 'live'];
+
+function setVolatility(vault) {
+  const i = process.argv.indexOf('--set-volatility');
+  const slug = process.argv[i + 1], vol = process.argv[i + 2];
+  if (!slug || slug.startsWith('--') || !VOLATILITY.includes(vol || '')) {
+    process.stderr.write('usage: vault-search.js --set-volatility <slug> <stable|moving|live> [--vault <dir>]\n');
+    process.exit(1);
+  }
+  // validate OUTSIDE the lock (reads are lock-free) — process.exit inside
+  // withLock's fn would skip its finally and leak the lock dir for 5 minutes
+  const probe = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
+  if (!probe) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
+  lib.withLock(vault, () => {
+    const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug) || probe;
+    lib.appendJsonl(path.join(vault, 'index.jsonl'), Object.assign({}, prev, { volatility: vol }));
+    lib.gitCommit(vault, 'research: set volatility ' + vol + ' for ' + slug);
+  });
+  process.stdout.write(JSON.stringify({ ok: true, slug, volatility: vol }) + '\n');
+}
+
 function main() {
   const vault = lib.resolveVault(getFlag('--vault'));
   if (process.argv.includes('--add-alias')) return addAlias(vault);
+  if (process.argv.includes('--set-volatility')) return setVolatility(vault);
 
-  const takesValue = new Set(['--vault', '--project']);
+  const takesValue = new Set(['--vault', '--project', '--as-of']);
   const terms = [];
   for (let i = 2; i < process.argv.length; i++) {
     const a = process.argv[i];
     if (a.startsWith('--')) { if (takesValue.has(a)) i++; continue; }
     terms.push(a.toLowerCase());
   }
-  if (!terms.length) { process.stderr.write('usage: vault-search.js <terms...> [--project <slug>] [--json]\n'); process.exit(1); }
+  if (!terms.length) { process.stderr.write('usage: vault-search.js <terms...> [--vault <dir>] [--project <slug>] [--as-of YYYY-MM-DD] [--json]\n'); process.exit(1); }
   const project = getFlag('--project');
   const wantJson = process.argv.includes('--json');
 
-  const index = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records);
-  const { claims } = lib.foldClaims(lib.readJsonl(path.join(vault, 'claims.jsonl')).records);
+  const asOf = getFlag('--as-of');
+  if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
+    process.stderr.write('vault-search: --as-of wants YYYY-MM-DD\n');
+    process.exit(1);
+  }
+  const asOfMs = asOf ? Date.parse(asOf) : null;
+
+  let indexRecords = lib.readJsonl(path.join(vault, 'index.jsonl')).records;
+  let claimRecords = lib.readJsonl(path.join(vault, 'claims.jsonl')).records;
+  if (asOf) {
+    // time travel: both claims and events carry date; string compare works on ISO dates
+    indexRecords = indexRecords.filter((r) => r && String(r.date || '') <= asOf);
+    claimRecords = claimRecords.filter((r) => r && String(r.date || '') <= asOf);
+  }
+  const index = lastPerSlug(indexRecords);
+  const { claims } = lib.foldClaims(claimRecords);
 
   const scores = new Map(), claimHits = new Map();
   const bump = (slug, n) => scores.set(slug, (scores.get(slug) || 0) + n);
@@ -111,7 +149,7 @@ function main() {
   }
 
   const hits = Array.from(scores.entries()).filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).map(([slug]) => slug);
-  lib.appendJsonl(path.join(vault, 'metrics.jsonl'), { v: 1, kind: 'recall', ts: new Date().toISOString(), terms, project: project || null, hits });
+  lib.appendJsonl(path.join(vault, 'metrics.jsonl'), { v: 1, kind: 'recall', ts: new Date().toISOString(), terms, project: project || null, asOf: asOf || null, hits });
 
   if (!hits.length) {
     const query = terms.join(' ');
@@ -156,7 +194,8 @@ function main() {
     blocks.push({ slug, rec, served });
   }
 
-  const provLine = (b) => 'vault · ' + b.slug + ' · researched ' + (b.rec.date || 'unknown') + ' · ' + freshness(b.rec.date);
+  const provLine = (b) => 'vault · ' + b.slug + ' · researched ' + (b.rec.date || 'unknown') + ' · '
+    + freshness(b.rec.date, asOfMs) + (asOf ? ' · as-of ' + asOf : '');
   if (wantJson) {
     process.stdout.write(JSON.stringify({ hits: blocks.map((b) => ({
       slug: b.slug, title: b.rec.title || b.slug, date: b.rec.date || null, scope: b.rec.scope || 'general',

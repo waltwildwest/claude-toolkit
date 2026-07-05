@@ -114,6 +114,7 @@ function main() {
 
   const vault = lib.resolveVault(arg('--vault', null), { mustExist: false });
   const created = !fs.existsSync(path.join(vault, 'index.jsonl'));
+  // init mutates without the vault lock BY CHOICE: it is the only writer of a not-yet-announced vault, and must work before .lock/'s parent exists (fail-soft).
   for (const d of ['topics', 'sources/raw', 'attachments', 'profiles', '.obsidian']) {
     fs.mkdirSync(path.join(vault, d), { recursive: true });
   }
