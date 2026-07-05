@@ -168,4 +168,29 @@ for (const g of good) if (!lib.isSafeName(g)) { console.error("rejected good: " 
 for (const b of bad) if (lib.isSafeName(b)) { console.error("accepted bad: " + JSON.stringify(b)); process.exit(2); }
 ' "$LIB" && ok "isSafeName rejects traversal, accepts real ids" || no "isSafeName" "rc=$?"
 
+# 14. withLock stale-steal stampede: many writers racing a stale lock must not
+# lose an update (each does read-increment-write under the lock)
+cat > "$W/incr.js" <<'JS'
+const lib = require(process.argv[2]);
+const vault = process.argv[3], counter = process.argv[4];
+lib.withLock(vault, () => {
+  const fs = require('fs');
+  let n = 0;
+  try { n = parseInt(fs.readFileSync(counter, 'utf8'), 10) || 0; } catch (_e) {}
+  const end = Date.now() + 15; while (Date.now() < end) { /* widen the critical section */ }
+  fs.writeFileSync(counter, String(n + 1));
+});
+JS
+STAMPEDE_OK=1
+for trial in 1 2 3 4 5 6; do
+  mkdir -p "$V/.lock" 2>/dev/null; touch -t 202001010000 "$V/.lock"   # a fresh stale lock each trial
+  echo 0 > "$W/counter"
+  for k in 1 2 3 4 5 6 7 8 9 10; do node "$W/incr.js" "$LIB" "$V" "$W/counter" & done
+  wait
+  GOT=$(cat "$W/counter")
+  [ "$GOT" = "10" ] || { STAMPEDE_OK=0; echo "    trial $trial: counter=$GOT (expected 10 — lost update)"; }
+  rmdir "$V/.lock" 2>/dev/null
+done
+[ $STAMPEDE_OK -eq 1 ] && ok "withLock survives a 10-writer stale-lock stampede (no lost updates)" || no "stampede" "lost updates"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

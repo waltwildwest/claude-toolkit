@@ -124,6 +124,34 @@ function msleep(ms) {
 const LOCK_STALE_MS = 5 * 60 * 1000;
 const LOCK_WAIT_MS = 10 * 1000;
 
+// Steal a stale lock SAFELY. A blind rmdir+mkdir race lets two stealers each
+// remove a lock a third process legitimately re-created between their stat and
+// their rmdir — two holders, a lost update. Fix: serialize stealers behind a
+// steal-mutex dir, then RE-VERIFY the lock is still the same stale instance
+// (old mtime) immediately before removing it. A fresh lock has a current
+// mtime, so a stealer that lost the race sees "not stale" and backs off.
+function stealStaleLock(lockDir) {
+  const steal = lockDir + '.steal';
+  try { fs.mkdirSync(steal); }
+  catch (e) {
+    if (e.code === 'EEXIST') {
+      // a concurrent (or crashed) stealer holds it — clear only if itself stale
+      let sAge = null;
+      try { sAge = Date.now() - fs.statSync(steal).mtimeMs; } catch (_e2) { return; }
+      if (sAge > LOCK_STALE_MS) { try { fs.rmdirSync(steal); } catch (_e2) {} }
+    }
+    return; // let the caller loop and retry
+  }
+  try {
+    let age = null;
+    try { age = Date.now() - fs.statSync(lockDir).mtimeMs; } catch (_e) { return; } // already gone
+    if (age > LOCK_STALE_MS) {
+      process.stderr.write('vault-lib: stealing stale lock (' + Math.round(age / 1000) + 's old) at ' + lockDir + '\n');
+      try { fs.rmdirSync(lockDir); } catch (_e) {}
+    }
+  } finally { try { fs.rmdirSync(steal); } catch (_e) {} }
+}
+
 function withLock(vault, fn) {
   const lockDir = path.join(vault, '.lock');
   const deadline = Date.now() + LOCK_WAIT_MS;
@@ -134,8 +162,11 @@ function withLock(vault, fn) {
       let age = null;
       try { age = Date.now() - fs.statSync(lockDir).mtimeMs; } catch (_e) { continue; } // vanished — retry now
       if (age > LOCK_STALE_MS) {
-        process.stderr.write('vault-lib: stealing stale lock (' + Math.round(age / 1000) + 's old) at ' + lockDir + '\n');
-        try { fs.rmdirSync(lockDir); } catch (_e) {} // steal path skips the 10s deadline check — pathological only (needs a fresh stale lock every loop)
+        stealStaleLock(lockDir); // serialized + re-verified; may or may not free the dir
+        if (Date.now() > deadline) {
+          throw new Error('vault is locked (' + lockDir + ', ' + Math.round(age / 1000) + 's old) — another process is writing; retry, or remove the dir if you know it is dead');
+        }
+        msleep(5);
         continue;
       }
       if (Date.now() > deadline) {
