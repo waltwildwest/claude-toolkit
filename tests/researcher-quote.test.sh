@@ -47,6 +47,7 @@ OUT=$(qv); rcode=$?
 { [ $rcode -eq 0 ] && has "$OUT" '"method":"fuzzy"'; } && ok "fuzzy relocation" || no "fuzzy" "rc=$rcode $OUT"
 node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.sourceQuote && r.sourceQuote.includes("external systems") ? 0 : 1)' "$OUT" \
   && ok "fuzzy sourceQuote from source" || no "fuzzy bytes" "$OUT"
+FUZZY_OUT="$OUT"
 
 # 5. fabricated quote -> none, exit 1
 printf 'The coordinator always re-reads every transcript before synthesis begins.' > "$W/q.txt"
@@ -55,5 +56,21 @@ OUT=$(qv); rcode=$?
 
 # 6. usage error -> exit 2
 node "$Q" --quote-file "$W/q.txt" >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage error -> exit 2" || no "usage exit" "$?"
+
+# 7. negation flip must NOT verify (word-set coverage was polarity-blind; LCS+negation-parity guard fixes it)
+cat > "$W/s.md" <<'EOF'
+The committee concluded that the compound is not safe for consumer use at all in its current form.
+EOF
+printf 'The committee concluded that the compound is safe for consumer use in its current form.' > "$W/q.txt"
+OUT=$(qv); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" '"method":"none"'; } && ok "negation flip rejected" || no "negation flip" "rc=$rcode $OUT"
+
+# 8. bounded sourceQuote: fuzzy result must not spuriously grow into an oversized blob
+node -e 'const r=JSON.parse(process.argv[1]); const q="Subagents store their work in external systems and pass lightweight references to the coordinator"; process.exit(r.sourceQuote && r.sourceQuote.length < (2*q.length + 60) ? 0 : 1)' "$FUZZY_OUT" \
+  && ok "fuzzy sourceQuote is bounded" || no "fuzzy bounded" "$FUZZY_OUT"
+
+# 9. IO error: --source-file pointing at a nonexistent path -> exit 2
+printf 'anything' > "$W/q.txt"
+node "$Q" --quote-file "$W/q.txt" --source-file "$W/does-not-exist.md" >/dev/null 2>&1; [ $? -eq 2 ] && ok "missing source file -> exit 2" || no "missing source file" "$?"
 
 echo; echo "quote-verify: $pass passed, $fail failed"; [ $fail -eq 0 ]

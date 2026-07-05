@@ -4,6 +4,12 @@
 // Checks that a claim's quote actually appears in a cached source extraction.
 // Match ladder: exact substring -> normalized substring (NFKC, straight
 // quotes, dashes, collapsed whitespace) -> fuzzy word-window relocation.
+// Fuzzy tier: anchors a bounded window, then requires order-sensitive word
+// coverage (LCS >= 0.8 of quote words) plus matching negation-word counts
+// between quote and window — order/polarity-blind word-set coverage is
+// rejected. Residual risk: a meaning-preserving, high-overlap paraphrase
+// could still pass; this is a documented tradeoff (Task 7 manually inspects
+// every fuzzy match).
 // On any verified match the returned sourceQuote is EXACT SOURCE BYTES —
 // the source is ground truth, not the model's transcription of it.
 //
@@ -55,14 +61,10 @@ function verify(quote, source) {
   }
 
   // Fuzzy: anchor on quote word n-grams found in the source word stream,
-  // require >=70% of quote words inside the located window.
+  // shrink the window to the actual quote-word span inside it, then require
+  // order-sensitive coverage (LCS) plus matching negation-word counts.
   const qWords = nq.text.toLowerCase().split(' ').filter(Boolean);
-  const sWords = ns.text.toLowerCase().split(' ');
   if (qWords.length < 6) return { verified: false, method: 'none', sourceQuote: null };
-  // word start offsets in normalized source
-  const offsets = [];
-  { let pos = 0;
-    for (const w of sWords) { offsets.push(pos); pos += w.length + 1; } }
   const N = Math.min(5, qWords.length);
   const firstGram = qWords.slice(0, N).join(' ');
   const lastGram = qWords.slice(-N).join(' ');
@@ -80,10 +82,52 @@ function verify(quote, source) {
   let end = endAnchor !== -1 && endAnchor >= start
     ? endAnchor + lastGram.length - 1
     : Math.min(ns.text.length - 1, start + Math.floor(nq.text.length * 1.5));
-  const windowWords = new Set(lowerNs.slice(start, end + 1).split(' ').filter(Boolean));
-  const covered = qWords.filter((w) => windowWords.has(w)).length / qWords.length;
-  if (covered < 0.7) return { verified: false, method: 'none', sourceQuote: null };
+
+  // Shrink the window to the span actually covered by quote words.
+  // Strip surrounding punctuation for word-equality checks only — the
+  // window's start/end offsets still land on the raw (punctuated) tokens
+  // so the original source bytes get sliced correctly.
+  const stripPunct = (w) => w.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+  const qWordsClean = qWords.map(stripPunct);
+  const qWordSet = new Set(qWordsClean);
+  const rawWindowWords = lowerNs.slice(start, end + 1).split(' ').filter(Boolean);
+  let firstHit = -1, lastHit = -1;
+  { let pos = start;
+    for (const w of rawWindowWords) {
+      if (qWordSet.has(stripPunct(w))) { if (firstHit === -1) firstHit = pos; lastHit = pos + w.length - 1; }
+      pos += w.length + 1;
+    } }
+  if (firstHit === -1) return { verified: false, method: 'none', sourceQuote: null };
+  start = firstHit; end = lastHit;
+
+  if (end - start + 1 > nq.text.length * 2) return { verified: false, method: 'none', sourceQuote: null };
+
+  const windowWordsClean = lowerNs.slice(start, end + 1).split(' ').filter(Boolean).map(stripPunct);
+  if (windowWordsClean.length > qWords.length * 3) return { verified: false, method: 'none', sourceQuote: null };
+
+  // Order-sensitive coverage: LCS of quote words vs window words.
+  const lcsLen = lcsLength(qWordsClean, windowWordsClean);
+  if (lcsLen / qWordsClean.length < 0.8) return { verified: false, method: 'none', sourceQuote: null };
+
+  // Negation parity: quote and window must agree on negation-word count.
+  const negRe = /\b(not|never|no|none|cannot|can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|without)\b/gi;
+  const qNegCount = (nq.text.match(negRe) || []).length;
+  const windowText = lowerNs.slice(start, end + 1);
+  const wNegCount = (windowText.match(negRe) || []).length;
+  if (qNegCount !== wNegCount) return { verified: false, method: 'none', sourceQuote: null };
+
   return { verified: true, method: 'fuzzy', sourceQuote: sliceOriginal(src, ns.map, start, end) };
+}
+
+// Longest common subsequence length between two word arrays (order-sensitive).
+function lcsLength(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
 }
 
 function arg(name) {
