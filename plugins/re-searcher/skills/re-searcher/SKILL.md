@@ -107,4 +107,16 @@ pointers only; mining is lazy. Three ways a past session becomes a vault run:
 After answering an ad-hoc research question that didn't go through a run, you may append ONE
 ignorable line: `(unvaulted — "/research save" to keep)`. Never a blocking question.
 
-Deeper procedures load on demand: references/full-path.md · references/claims.md · references/correct.md · references/harvest.md
+## 8 · LIBRARIAN (/research doctor · export)
+
+Doctor = deterministic sweep first, LLM passes second (never the reverse):
+`node "$SKILL_DIR/vault-doctor.js" --vault "$VAULT"` applies the safe fixes (dead
+pointers, index compaction, claims-current, alias learning, wayback drain) and prints a
+work report; dispatch its LLM passes — promote / freshness / mine / contradictions —
+per references/doctor.md. Doctor-granted promotion goes ONLY through
+`vault-save.js --events <file> --doctor`. Report one line: fixes + backlog.
+`/research export <slug>` → `node "$SKILL_DIR/vault-export.js" <slug> --vault "$VAULT"`
+(extraction+link, never raw HTML). Time travel: `vault-search.js … --as-of YYYY-MM-DD`.
+Scheduling: offer `vault-doctor.js --schedule-snippet` once, like the allowlist.
+
+Deeper procedures load on demand: references/full-path.md · references/claims.md · references/correct.md · references/harvest.md · references/doctor.md
