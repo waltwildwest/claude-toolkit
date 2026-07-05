@@ -104,4 +104,46 @@ OUT=$(node "$X" "$W/article.html" --assess)
 node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.usable && r.score>=0.7 && r.signals.length===0 ? 0 : 1)' "$OUT" \
   && ok "real article -> usable, clean" || no "article usable" "$OUT"
 
+# --- Stage 1 amendments (STAGE0-REPORT) ---
+
+# (b) structural challenge detection: a "Captcha" string inside a big real
+# article (login/edit chrome) must NOT refuse the page
+cat > "$W/wiki.html" <<'EOF'
+<html><head><title>Model Context Protocol - Encyclopedia</title></head><body>
+<article><h1>Model Context Protocol</h1>
+EOF
+for i in $(seq 1 30); do
+  echo "<p>The protocol defines a client server architecture for tool use, paragraph $i of the article body text.</p>" >> "$W/wiki.html"
+done
+cat >> "$W/wiki.html" <<'EOF'
+<p>Log in with Captcha to edit this page.</p>
+</article></body></html>
+EOF
+OUT=$(node "$X" "$W/wiki.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.usable && !r.signals.includes("challenge-page") ? 0 : 1)' "$OUT" \
+  && ok "captcha in article chrome does not false-refuse" || no "structural challenge" "$OUT"
+
+# regression: title-signature challenge page still refused
+OUT=$(node "$X" "$W/challenge.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(!r.usable && r.signals.includes("challenge-page") ? 0 : 1)' "$OUT" \
+  && ok "title-signature challenge still refused" || no "title challenge" "$OUT"
+
+# (d) script-shell signal has a dedicated fixture (was untested in CI)
+node -e '
+const p = "<p>Real page text sentence that is long enough to escape the thin gate when repeated a bit more.</p>";
+const html = "<html><head><title>Shell</title></head><body><main>" + p.repeat(6) + "</main>"
+  + "<script>" + "x".repeat(150000) + "</script></body></html>";
+require("fs").writeFileSync(process.argv[1], html);' "$W/shell.html"
+OUT=$(node "$X" "$W/shell.html" --assess)
+node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.signals.includes("script-shell") ? 0 : 1)' "$OUT" \
+  && ok "script-shell signal fires" || no "script-shell" "$OUT"
+
+# (e) code fences restored around <pre> blocks
+OUT=$(node "$X" "$W/article.html")
+has "$OUT" '```' && ok "pre restored inside code fences" || no "fences" "$OUT"
+
+# CLI: --assess may precede the file argument
+OUT=$(node "$X" --assess "$W/article.html")
+has "$OUT" '"usable":true' && ok "--assess before file works" || no "flag order" "$OUT"
+
 echo; echo "extract: $pass passed, $fail failed"; [ $fail -eq 0 ]
