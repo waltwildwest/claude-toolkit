@@ -85,10 +85,12 @@ function claimCtx(vault, runId, topic, date) {
     takenIds: new Set(registry.keys()),
     knownIds: new Set(registry.keys()),
     supersedeEdges: new Map(Array.from(registry.values()).map((c) => [c.id, c.supersededBy.slice()])),
-    // re-persist guards: claims this run already registered (kept with their
-    // ids so batch refs still resolve on a re-save) and events already present
-    runStatements: new Set(runClaims.map((c) => String(c.statement))),
-    runClaimIdByStatement: new Map(runClaims.map((c) => [String(c.statement), c.id])),
+    // re-persist guards: claims this run already registered (keyed by the
+    // NORMALIZED statement so trivial whitespace/case/punctuation variants
+    // don't slip past dedup as new claims), kept with their ids so batch refs
+    // still resolve on a re-save
+    runStatements: new Set(runClaims.map((c) => lib.normStatement(c.statement))),
+    runClaimIdByStatement: new Map(runClaims.map((c) => [lib.normStatement(c.statement), c.id])),
     eventKeys: new Set(records.filter((r) => r && r.op).map((r) => r.op + '|' + r.claim + '|' + (r.by || ''))),
   };
 }
@@ -175,12 +177,15 @@ function persist(runDir) {
         } catch (_e) { lib.appendJsonl(rejFile, { reason: 'unparseable JSON', line: line.slice(0, 500) }); rejected++; }
       }
       const refMap = new Map();
+      const batchByStatement = new Map(); // normalized statement -> id, for THIS batch
       for (const rec of claimsStaged) {
-        if (ctx.runStatements.has(String(rec.statement))) {
-          // re-persist: already registered — refs must still resolve so
-          // staged events don't produce phantom rejects on a re-save
+        const norm = lib.normStatement(rec.statement);
+        // dedupe against the registry (re-persist) AND against claims accepted
+        // earlier in this same batch — trivial variants collapse to one claim
+        const priorId = ctx.runStatements.has(norm) ? ctx.runClaimIdByStatement.get(norm) : batchByStatement.get(norm);
+        if (priorId !== undefined) {
           duplicates++;
-          if (rec.ref) refMap.set(String(rec.ref), ctx.runClaimIdByStatement.get(String(rec.statement)));
+          if (rec.ref) refMap.set(String(rec.ref), priorId); // refs must still resolve
           continue;
         }
         const ref = rec.ref;
@@ -190,6 +195,7 @@ function persist(runDir) {
         if (!res.ok) { reject(res.reason, rec); continue; }
         lib.appendJsonl(path.join(vault, 'claims.jsonl'), res.record);
         accepted++; ids.push(res.record.id); ctx.knownIds.add(res.record.id);
+        batchByStatement.set(norm, res.record.id);
         if (res.downgraded) downgraded++;
         if (ref) refMap.set(String(ref), res.record.id);
       }

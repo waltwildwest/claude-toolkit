@@ -220,4 +220,13 @@ const ok = lib.foldClaims([
 if (ok.provenance !== "externally-verified") { console.error("normal verify broke: " + ok.provenance); process.exit(2); }
 ' "$LIB" && ok "redaction downgrade is sticky against a later verify" || no "sticky redaction" "rc=$?"
 
+# 17. normStatement collapses trivial variants to one key
+node -e '
+const lib = require(process.argv[1]);
+const base = lib.normStatement("The sky is blue");
+const same = ["The sky is blue ", "  the SKY  is blue.", "The sky is blue!", "the sky is blue"];
+for (const s of same) if (lib.normStatement(s) !== base) { console.error("variant differs: " + JSON.stringify(s)); process.exit(1); }
+if (lib.normStatement("The sky is green") === base) process.exit(2);
+' "$LIB" && ok "normStatement collapses whitespace/case/punctuation" || no "normStatement" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

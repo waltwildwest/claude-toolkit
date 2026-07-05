@@ -128,6 +128,15 @@ function isSafeName(s) {
     && /^[A-Za-z0-9._-]+$/.test(s) && !s.includes('..');
 }
 
+// Canonical form of a claim statement for dedupe: case-fold, collapse
+// whitespace, drop trailing punctuation. "The sky is blue", "the sky is
+// blue ", and "The sky is blue." collapse to one key, so trivial variants
+// don't register as distinct claims. Never stored — only a comparison key.
+function normStatement(s) {
+  return String(s == null ? '' : s).normalize('NFKC').toLowerCase()
+    .replace(/\s+/g, ' ').trim().replace(/[.,;:!?"'()\[\]]+$/g, '').trim();
+}
+
 function newId(prefix, seed, taken) {
   let id = prefix + '_' + sha8(seed);
   let n = 2;
@@ -292,4 +301,4 @@ function resolveTerminal(claims, id, seen) {
   return [];
 }
 
-module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, isSafeName, isPrivateIp, checkPublicHost, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
+module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, isSafeName, normStatement, isPrivateIp, checkPublicHost, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
