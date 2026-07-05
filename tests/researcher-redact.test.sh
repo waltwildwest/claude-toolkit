@@ -43,7 +43,9 @@ node -e '
 const t = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 process.exit(t.v === 1 && t.reason === "leaked credential" && t.removed.length === 2 ? 0 : 1);
 ' "$V/sources/$SID.tombstone.json" && ok "tombstone written" || no "tombstone" "$(cat "$V/sources/$SID.tombstone.json" 2>/dev/null)"
-[ "$(grep -c . "$V/sources/fetch-log.jsonl")" = "0" ] && ok "fetch-log entry dropped (refetch allowed)" || no "fetch-log" ""
+# fetch-log is left append-only (no destructive rewrite that would race a concurrent fetch);
+# the tombstone is what makes a refetch skip the dedupe (asserted in the fetch suite)
+[ "$(grep -c . "$V/sources/fetch-log.jsonl")" = "1" ] && ok "fetch-log left append-only (tombstone gates refetch)" || no "fetch-log" "$(cat "$V/sources/fetch-log.jsonl")"
 node -e '
 const lib = require(process.argv[1] + "/vault-lib.js");
 const { claims } = lib.foldClaims(lib.readJsonl(process.argv[2] + "/claims.jsonl").records);

@@ -60,12 +60,11 @@ function redactSource(vault, id, reason) {
     if (fs.existsSync(rawPath)) { fs.rmSync(rawPath, { force: true }); removed.push('sources/raw/' + hash8 + '.html'); }
     lib.atomicWrite(tomb, JSON.stringify({ v: 1, source: id, reason: reason || 'redacted', date: lib.today(), removed }, null, 2) + '\n');
 
-    const logFile = path.join(vault, 'sources', 'fetch-log.jsonl');
-    if (fs.existsSync(logFile)) {
-      const keep = lib.readJsonl(logFile).records.filter((r) => !(r && r.source_id === id));
-      lib.atomicWrite(logFile, keep.map((r) => JSON.stringify(r)).join('\n') + (keep.length ? '\n' : ''));
-    }
-
+    // fetch-log is intentionally NOT rewritten here: vault-fetch appends to it
+    // lock-free, so a full-file rewrite would race and silently drop a
+    // concurrent fetch's entry. Instead the tombstone we just wrote makes
+    // vault-fetch's dedupe skip this source, so a refetch stores fresh rather
+    // than resurrecting the redacted file.
     const claimsFile = path.join(vault, 'claims.jsonl');
     const { claims } = lib.foldClaims(lib.readJsonl(claimsFile).records);
     const downgraded = [];

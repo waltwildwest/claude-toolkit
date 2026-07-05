@@ -141,4 +141,11 @@ OUT=$(WAYBACK= WAYBACK_API="http://127.0.0.1:1" node "$F" "$BASE/article?wb=know
 OUT=$(RESEARCH_ALLOW_PRIVATE_HOSTS= node "$F" "$BASE/article" --vault "$V" 2>&1); rcode=$?
 { [ $rcode -eq 1 ] && has "$OUT" 'SSRF guard'; } && ok "SSRF guard refuses loopback by default" || no "ssrf" "rc=$rcode $OUT"
 
+# 14. tombstone-aware dedupe: a redacted (tombstoned) source is NOT deduped — refetch stores fresh
+OUT=$(node "$F" "$BASE/article?wb=tomb" --vault "$V"); SID=$(node -e 'console.log(JSON.parse(process.argv[1]).sourceId)' "$OUT")
+node "$F" "$BASE/article?wb=tomb" --vault "$V" | grep -q '"status":"duplicate"' && ok "same url dedupes while source present" || no "pre-tomb dup" ""
+rm -f "$V/sources/$SID.md"; printf '{"v":1,"source":"%s"}\n' "$SID" > "$V/sources/$SID.tombstone.json"
+OUT=$(node "$F" "$BASE/article?wb=tomb" --vault "$V"); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"status":"stored"'; } && ok "tombstoned source refetches fresh, never resurrects" || no "tomb refetch" "rc=$rcode $OUT"
+
 echo; echo "vault-fetch: $pass passed, $fail failed"; [ $fail -eq 0 ]

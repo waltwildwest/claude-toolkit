@@ -158,7 +158,14 @@ function main() {
         if (!line.trim()) continue;
         let rec; try { rec = JSON.parse(line); } catch (_e) { continue; } // skip-don't-abort (spec)
         if (rec.norm_url === normUrl && rec.extraction_sha256 === extSha) {
-          return emit(Object.assign(filled, { status: 'duplicate', sourceId: rec.source_id, sourcePath: rec.source_path }), 0);
+          // tombstone-aware dedupe: a redacted source's file is gone and a
+          // *.tombstone.json sits beside it — never dedupe INTO a deleted
+          // source (that would resurrect redacted content as a live hit). This
+          // is why redaction leaves fetch-log append-only: no destructive
+          // rewrite to race a concurrent lock-free fetch append.
+          const stillThere = rec.source_path && fs.existsSync(rec.source_path)
+            && !fs.existsSync(path.join(srcDir, String(rec.source_id) + '.tombstone.json'));
+          if (stillThere) return emit(Object.assign(filled, { status: 'duplicate', sourceId: rec.source_id, sourcePath: rec.source_path }), 0);
         }
       }
     }
