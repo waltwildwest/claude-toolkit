@@ -2273,6 +2273,10 @@ OUT=$(node "$SR" authz --vault "$V"); rcode=$?
 [ $rcode -eq 0 ] && has "$OUT" 'mcp-auth' && ok "learned alias hits" || no "alias hit" "rc=$rcode $OUT"
 git -C "$V" log --oneline -1 | grep -q "alias" && ok "alias learning auto-commits" || no "alias git" ""
 
+# add-alias with unknown slug fails loud and must NOT leak the lock
+node "$SR" --add-alias no-such-topic "x" --vault "$V" >/dev/null 2>&1; rcode=$?
+{ [ $rcode -eq 1 ] && [ ! -d "$V/.lock" ]; } && ok "unknown slug: exit 1, no lock leak" || no "lock leak" "rc=$rcode lock=$([ -d "$V/.lock" ] && echo held || echo free)"
+
 # 8. missing vault fails loud (never 0 hits)
 ERR=$(RESEARCH_VAULT_DIR= node "$SR" anything --vault "$W/novault" 2>&1 >/dev/null); rcode=$?
 { [ $rcode -eq 1 ] && has "$ERR" 'vault-init'; } && ok "missing vault fails loud" || no "missing vault" "rc=$rcode $ERR"
@@ -2348,9 +2352,11 @@ function addAlias(vault) {
     process.stderr.write('usage: vault-search.js --add-alias <slug> <alias> [--vault <dir>]\n');
     process.exit(1);
   }
+  // validate OUTSIDE the lock (reads are lock-free) — process.exit inside
+  // withLock's fn would skip its finally and leak the lock dir for 5 minutes
+  const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
+  if (!prev) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
   lib.withLock(vault, () => {
-    const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
-    if (!prev) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
     const aliases = Array.from(new Set([].concat(prev.aliases || [], [alias])));
     lib.appendJsonl(path.join(vault, 'index.jsonl'), Object.assign({}, prev, { aliases }));
     lib.gitCommit(vault, 'research: learn alias "' + alias + '" for ' + slug);
@@ -2812,7 +2818,7 @@ Create `plugins/re-searcher/skills/re-searcher/references/full-path.md`:
 
 ## plan.md (persist BEFORE fan-out)
 
-Start from `node vault-init.js --template plan`. The frontmatter feeds the index — it is
+Start from `node "$SKILL_DIR/vault-init.js" --template plan`. The frontmatter feeds the index — it is
 the grep-bait future recall depends on:
 - `topic:` the slug (MUST match the run folder's topic segment; vault-save enforces it)
 - `aliases:` 3–5 synonyms someone might probe with later; `questions:` 3–5 anticipated
@@ -2825,7 +2831,7 @@ including a resumed session after compaction.
 
 ## Briefing agents
 
-Emit `node vault-init.js --template task-spec` and fill it per agent: ONE core objective,
+Emit `node "$SKILL_DIR/vault-init.js" --template task-spec` and fill it per agent: ONE core objective,
 an explicit scope boundary, the output file from the manifest, the run-dir path, and the
 vault dir. Budgets (Anthropic's): straightforward 1 agent / 3–10 calls; comparisons 2–4
 agents; open landscape 5–10 with an explicit stop-at-diminishing-returns line. Agents:
@@ -2838,13 +2844,13 @@ agents; open landscape 5–10 with an explicit stop-at-diminishing-returns line.
 
 ## After fan-out
 
-1. `vault-save.js --check-staging <run-dir>` — exit 2: re-request the missing/stub
+1. `node "$SKILL_DIR/vault-save.js" --check-staging <run-dir>` — exit 2: re-request the missing/stub
    finding from that agent once; still missing → record it under Gaps in synthesis.md
    and move on (a visible gap beats a fake completion).
 2. Read the findings FILES before synthesizing — never synthesize from return blurbs.
 3. synthesis.md sections: Verdict · Key claims · Gaps · How to re-verify · Related.
 4. Stage claims (see references/claims.md), then persist:
-   `vault-save.js <run-dir> --session <session-id> --transcript <path>...`
+   `node "$SKILL_DIR/vault-save.js" <run-dir> --session <session-id> --transcript <path>...`
    Transcript paths: `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` (plus subagent
    transcript files if you can identify them). Copies are gzipped into the run folder so
    provenance survives Claude Code's retention window; a missing path is a warning, not
@@ -2867,7 +2873,7 @@ One JSON object per line, written into the run dir before persist. Two record sh
 
 ```json
 {"statement": "Remote MCP servers must use OAuth 2.1", "quote": "requires OAuth 2.1 with PKCE",
- "source": "src_3f9a12", "provenance": "verbatim-grounded", "confidence": "high",
+ "source": "3f9a12cd--spec-example--auth-page", "provenance": "verbatim-grounded", "confidence": "high",
  "type": "finding", "found_by": "spec-reader", "tool": "websearch",
  "locator": "https://spec.example/auth#section-2", "ref": "c1"}
 ```
@@ -2877,7 +2883,7 @@ Rules (enforced by vault-save; rejects land in claims-rejected.jsonl with reason
   quote is its evidence.
 - `provenance`: `verbatim-grounded | model-asserted | human-asserted`. Never stage
   `externally-verified` — the doctor grants that (stage 3), staging it is rejected.
-- `verbatim-grounded` requires `source` (a sources/<id>.md id printed by vault-fetch)
+- `verbatim-grounded` requires `source` (the sourceId vault-fetch prints — shaped <hash8>--<host>--<slug>, the filename stem under sources/)
   AND `quote`. The quote is verified mechanically against the cached extraction:
   found → rewritten to exact source bytes; not found → the claim is KEPT but downgraded
   to model-asserted with a note. So: copy quotes from the extraction text you actually
@@ -2922,7 +2928,7 @@ Create `plugins/re-searcher/skills/re-searcher/references/correct.md`:
 
 The registry is append-only: corrections are EVENTS, never edits.
 
-1. Find the claim ids: `node vault-search.js "<topic terms>" --vault "$VAULT"` prints
+1. Find the claim ids: `node "$SKILL_DIR/vault-search.js" "<topic terms>" --vault "$VAULT"` prints
    ids per served claim, or read `topics/<slug>/topic.md` (ids are on every line).
 2. Write the events to a temp file with the Write tool (never inline shell), one JSON
    object per line:
@@ -2931,7 +2937,7 @@ The registry is append-only: corrections are EVENTS, never edits.
      first; supersede needs a real registered target.
    - withdraw: `{"op":"retract","claim":"clm_BAD","by":"human","reason":"..."}`
    - mark conflict: `{"op":"contradict","claim":"clm_A","by":"clm_B","reason":"..."}`
-3. Apply: `node vault-save.js --events <file> --vault "$VAULT"` — cycle-creating
+3. Apply: `node "$SKILL_DIR/vault-save.js" --events <file> --vault "$VAULT"` — cycle-creating
    supersedes are rejected by the DAG check; rejects print with reasons.
 4. Views regenerate and the vault auto-commits. Verify with a fresh vault-search: the
    old claim should now appear only as `↳ supersedes` history, never as live.

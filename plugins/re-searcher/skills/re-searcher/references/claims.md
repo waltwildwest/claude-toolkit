@@ -6,7 +6,7 @@ One JSON object per line, written into the run dir before persist. Two record sh
 
 ```json
 {"statement": "Remote MCP servers must use OAuth 2.1", "quote": "requires OAuth 2.1 with PKCE",
- "source": "src_3f9a12", "provenance": "verbatim-grounded", "confidence": "high",
+ "source": "3f9a12cd--spec-example--auth-page", "provenance": "verbatim-grounded", "confidence": "high",
  "type": "finding", "found_by": "spec-reader", "tool": "websearch",
  "locator": "https://spec.example/auth#section-2", "ref": "c1"}
 ```
@@ -16,7 +16,7 @@ Rules (enforced by vault-save; rejects land in claims-rejected.jsonl with reason
   quote is its evidence.
 - `provenance`: `verbatim-grounded | model-asserted | human-asserted`. Never stage
   `externally-verified` — the doctor grants that (stage 3), staging it is rejected.
-- `verbatim-grounded` requires `source` (a sources/<id>.md id printed by vault-fetch)
+- `verbatim-grounded` requires `source` (the sourceId vault-fetch prints — shaped <hash8>--<host>--<slug>, the filename stem under sources/)
   AND `quote`. The quote is verified mechanically against the cached extraction:
   found → rewritten to exact source bytes; not found → the claim is KEPT but downgraded
   to model-asserted with a note. So: copy quotes from the extraction text you actually
