@@ -110,4 +110,11 @@ process.exit(last.volatility === "stable" && Array.isArray(last.aliases) && last
 node "$SR" --set-volatility mcp-auth hourly --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "bad volatility rejected" || no "vol enum" ""
 node "$SR" --set-volatility nope-topic stable --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown slug rejected" || no "vol slug" ""
 
+# --as-of excludes records with no/empty date (can't be placed in time)
+printf '{"v":1,"slug":"dateless-topic","title":"Dateless","aliases":["nodate probe"],"questions":[],"scope":"general","run":"rz"}\n' >> "$V/index.jsonl"
+OUT=$(node "$SR" nodate probe --as-of 2020-01-01 --vault "$V"); rc=$?
+[ $rc -eq 2 ] && ok "--as-of excludes dateless index records" || no "as-of dateless" "rc=$rc $OUT"
+OUT=$(node "$SR" nodate probe --vault "$V"); rc=$?
+[ $rc -eq 0 ] && ok "dateless record still visible without --as-of" || no "dateless plain" "rc=$rc"
+
 echo; echo "vault-search: $pass passed, $fail failed"; [ $fail -eq 0 ]

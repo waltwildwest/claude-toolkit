@@ -127,4 +127,16 @@ OUT=$(node "$H" --inbox --vault "$V9" 2>/dev/null); rcode=$?
 { [ $rcode -eq 0 ] && has "$OUT" '"errors":1' && has "$OUT" '"drained":0'; } && ok "drain counts errors" || no "errors tally" "rc=$rcode $OUT"
 [ "$(grep -c . "$V9/inbox.jsonl")" = "1" ] && ok "error pointer kept for retry" || no "pointer kept" ""
 
+# --- stage 3 hardening: inbox drain dedupes a doubled pointer (lock-free hook race) ---
+VA="$W/vaultA"; node "$I" --vault "$VA" >/dev/null 2>&1
+sed 's/sessharv0001/sessdup00001/g' "$T" > "$PDIR/sessdup00001.jsonl"
+PTR='{"v":1,"kind":"pointer","session":"sessdup00001","transcript":"'"$PDIR/sessdup00001.jsonl"'","topicGuess":"dup"}'
+printf '%s\n%s\n' "$PTR" "$PTR" >> "$VA/inbox.jsonl"   # doubled (two hooks fired)
+OUT=$(node "$H" --inbox --vault "$VA" 2>/dev/null)
+node -e '
+const r = JSON.parse(process.argv[1]);
+if (r.harvested !== 1) { console.error("harvested=" + r.harvested + " (expected 1)"); process.exit(1); }
+' "$OUT" && ok "drain dedupes doubled same-session pointers (harvested once)" || no "inbox dedup" "$OUT"
+[ "$(grep -c . "$VA/inbox.jsonl")" = "0" ] && ok "both duplicate pointers removed" || no "dup removed" "$(cat "$VA/inbox.jsonl")"
+
 echo; echo "vault-harvest: $pass passed, $fail failed"; [ $fail -eq 0 ]

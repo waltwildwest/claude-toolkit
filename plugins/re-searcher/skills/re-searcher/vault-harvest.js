@@ -177,7 +177,14 @@ function removePointers(vault, sessions) {
 }
 
 function drainInbox(vault) {
-  const pointers = lib.readJsonl(path.join(vault, 'inbox.jsonl')).records.filter((r) => r && r.kind === 'pointer');
+  // dedupe by session on read: the Stop hook appends lock-free (it must never
+  // stall a session close), so two near-simultaneous hooks can double-append a
+  // pointer. Processing the first per session — the harvest is idempotent, but
+  // this keeps the drain summary honest and avoids a wasted second attempt.
+  const seenSession = new Set();
+  const pointers = lib.readJsonl(path.join(vault, 'inbox.jsonl')).records
+    .filter((r) => r && r.kind === 'pointer')
+    .filter((p) => { if (seenSession.has(p.session)) return false; seenSession.add(p.session); return true; });
   const results = [];
   const done = [];
   let harvested = 0, already = 0, missing = 0, errors = 0;
