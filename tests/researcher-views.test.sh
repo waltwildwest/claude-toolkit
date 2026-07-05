@@ -57,6 +57,12 @@ node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
 { [ "$(grep -c '^## Latest synthesis' "$T")" = "1" ] && [ "$(grep -c '^## Notes (human)' "$T")" = "1" ] \
   && grep -q 'my precious annotation' "$T"; } && ok "repeated regen stays clean" || no "regen idempotent" "$(grep -c '^## Latest synthesis' "$T") synthesis headings"
 
+# an empty newer run (allocated, no synthesis yet) must not blank the synthesis
+mkdir -p "$V/topics/mcp-auth/runs/2026-07-05b-zzzz/findings"
+node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
+grep -q 'Latest synthesis (run 2026-07-05a-9f3c)' "$T" && grep -q 'OAuth 2.1 is required for remote MCP servers' "$T" \
+  && ok "synthesis survives an empty newer run" || no "empty newer run" "$(grep 'Latest synthesis' "$T")"
+
 # INDEX.md lists the topic
 grep -q 'MCP Auth Landscape' "$V/INDEX.md" && grep -q 'topics/mcp-auth/topic.md' "$V/INDEX.md" \
   && ok "INDEX.md lists topic" || no "INDEX" "$(cat "$V/INDEX.md")"

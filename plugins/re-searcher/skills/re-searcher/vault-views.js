@@ -69,11 +69,13 @@ function regenTopic(vault, slug) {
   live.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
 
   const runs = listRuns(vault, slug);
-  const latest = runs[runs.length - 1] || null;
+  // "Latest synthesis" = the newest run that HAS one — a freshly allocated or
+  // aborted run without synthesis.md must not blank the topic view.
+  let latest = null;
   let synthesis = '_No synthesis yet._';
-  if (latest) {
-    const sp = path.join(topicDir, 'runs', latest, 'synthesis.md');
-    if (fs.existsSync(sp)) synthesis = fs.readFileSync(sp, 'utf8').trim();
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const sp = path.join(topicDir, 'runs', runs[i], 'synthesis.md');
+    if (fs.existsSync(sp)) { latest = runs[i]; synthesis = fs.readFileSync(sp, 'utf8').trim(); break; }
   }
 
   const out = [
