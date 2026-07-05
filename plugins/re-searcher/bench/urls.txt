@@ -1,0 +1,20 @@
+https://www.anthropic.com/engineering/multi-agent-research-system
+https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/302
+https://en.wikipedia.org/wiki/Model_Context_Protocol
+https://github.com/anthropics/claude-cookbooks
+https://raw.githubusercontent.com/anthropics/claude-cookbooks/main/README.md
+https://arxiv.org/abs/2210.03629
+https://nodejs.org/api/https.html
+https://docs.python.org/3/library/json.html
+https://react.dev/learn
+https://doc.rust-lang.org/book/ch01-00-getting-started.html
+https://stackoverflow.com/questions/643699/how-can-i-split-a-string-into-segments-of-n-characters
+https://news.ycombinator.com/item?id=1
+https://paulgraham.com/ds.html
+https://overreacted.io/a-complete-guide-to-useeffect/
+https://www.theverge.com/tech
+https://simonwillison.net/2025/Jun/
+https://modelcontextprotocol.io/introduction
+https://x.com/AnthropicAI  #hard js-shell expected
+https://www.youtube.com/watch?v=dQw4w9WgXcQ  #hard js-shell expected
+https://medium.com/@anthropic  #hard paywall/challenge expected
