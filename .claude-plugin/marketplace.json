@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "handoff",
-      "source": "./",
+      "source": "./plugins/handoff",
       "strict": false,
       "version": "1.2.1",
       "description": "Hand a task off to a fresh session that mirrors your model, effort and permission mode. Includes the pickup skill for continuing from a brief in the desktop app.",
@@ -35,9 +35,9 @@
     },
     {
       "name": "route",
-      "source": "./",
+      "source": "./plugins/route",
       "strict": false,
-      "version": "2.1.0",
+      "version": "2.3.0",
       "description": "Spend the expensive model only where it earns its price: size delegated work into tiers, reuse identical work from a local result cache, fan big jobs out with a strong-model review, and measure it all with route-report against three honest baselines.",
       "author": {
         "name": "waltwildwest"
@@ -55,7 +55,9 @@
         "cache",
         "caching",
         "hooks",
-        "activation"
+        "activation",
+        "learning",
+        "self-tuning"
       ],
       "category": "productivity",
       "skills": [

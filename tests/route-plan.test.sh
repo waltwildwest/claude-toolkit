@@ -3,7 +3,7 @@
 # Isolated: uses --model override and a temp HOME, no side effects.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLAN="$ROOT/skills/route/route-plan.js"
+PLAN="$ROOT/plugins/route/skills/route/route-plan.js"
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s  <<%s>>\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -59,6 +59,18 @@ OUT=$(env -u CLAUDE_CODE_SESSION_ID node "$PLAN" --json); rc=$?
 # 10. bad flag -> exit 1
 OUT=$(rp --nope 2>&1); rc=$?
 { [ $rc -eq 1 ] && has "$OUT" "unknown flag"; } && ok "bad flag -> exit 1" || no "bad flag" "$OUT"
+
+# 11. --model '' (empty string) is rejected outright rather than silently
+#     falling through to transcript detection (fix 1: layers must agree).
+OUT=$(rp --model '' 2>&1); rc=$?
+{ [ $rc -eq 1 ] && has "$OUT" "non-empty value"; } && ok "--model '' rejected, not silently mis-detected" || no "empty --model" "rc=$rc $OUT"
+
+# 12. --model '<synthetic>' is treated as assumed-top (fix 2: explicit
+#     override gets the same synthetic/blank-model normalization as detection).
+#     Isolated from any real session/transcript so a synthetic override can't
+#     fall through to detection and pick up an unrelated real model.
+OUT=$(env -u CLAUDE_CODE_SESSION_ID node "$PLAN" --model '<synthetic>' --json)
+{ has "$OUT" '"brain": null' && has "$OUT" '"brainKnown": false' && has "$OUT" '"grunt": "haiku"' && has "$OUT" '"standard": "sonnet"'; } && ok "--model '<synthetic>' treated as assumed-top" || no "synthetic --model" "$OUT"
 
 echo
 echo "route-plan: $pass passed, $fail failed"

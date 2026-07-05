@@ -20,8 +20,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Cheap -> top. First match wins; unknown ids are assumed strong (tier = top),
-// so an unfamiliar new model still delegates its grunt work downward safely.
+// Cheap -> top. Highest matching tier wins (a model id can match more than one
+// keyword; the strongest match determines its tier); unknown ids are assumed
+// strong (tier = top), so an unfamiliar new model still delegates its grunt
+// work downward safely.
 const LADDER = [
   { tier: 0, label: 'cheapest', match: /haiku/i },
   { tier: 1, label: 'mid', match: /sonnet/i },
@@ -36,7 +38,11 @@ function parseArgs(argv) {
   const args = { model: null, json: false, help: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--model') { args.model = argv[i += 1]; if (args.model == null) throw new Error('--model needs a value'); }
+    if (a === '--model') {
+      args.model = argv[i += 1];
+      if (args.model == null) throw new Error('--model needs a value');
+      if (args.model.trim() === '') throw new Error('--model needs a non-empty value');
+    }
     else if (a === '--json') { args.json = true; }
     else if (a === '--help' || a === '-h') { args.help = true; }
     else { throw new Error(`unknown flag: ${a}`); }
@@ -67,15 +73,31 @@ function detectModel() {
     let d;
     try { d = JSON.parse(line); } catch { continue; }
     const m = (d.message && d.message.model) || d.model;
-    if (m && typeof m === 'string' && !m.startsWith('<')) model = m; // last wins
+    if (m && typeof m === 'string') {
+      const normalized = normalizeModel(m);
+      if (normalized) model = normalized; // last wins
+    }
   }
   return model;
 }
 
+// Normalize a model id the same way for both detection and explicit override:
+// trim whitespace, and treat blank or synthetic/placeholder ids ('<...>') as
+// "no model" so both paths fall back to assumed-top consistently.
+function normalizeModel(model) {
+  if (!model) return null;
+  const trimmed = model.trim();
+  if (trimmed === '' || trimmed.startsWith('<')) return null;
+  return trimmed;
+}
+
 function tierOf(model) {
   if (!model) return { tier: TOP_TIER, known: false };
-  const hit = LADDER.find((l) => l.match.test(model));
-  return hit ? { tier: hit.tier, label: hit.label, known: true } : { tier: TOP_TIER, known: false };
+  let best = null;
+  for (const l of LADDER) {
+    if (l.match.test(model) && (best === null || l.tier > best.tier)) best = l;
+  }
+  return best ? { tier: best.tier, label: best.label, known: true } : { tier: TOP_TIER, known: false };
 }
 
 function buildPlan(model) {
@@ -109,7 +131,7 @@ function printHuman(p) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) { console.log('usage: route-plan [--model <id>] [--json]'); return 0; }
-  const model = args.model || detectModel();
+  const model = normalizeModel(args.model) || detectModel();
   const plan = buildPlan(model);
   if (args.json) console.log(JSON.stringify(plan, null, 1));
   else printHuman(plan);

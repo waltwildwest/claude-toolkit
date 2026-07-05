@@ -29,14 +29,17 @@ function sonnet5Row() {
     : { match: /sonnet-5/, label: 'Sonnet 5 (intro pricing)', in: 2, out: 10 };
 }
 
-// Ordered: first regex match wins. USD per MTok.
+// Ordered: first regex match wins. USD per MTok. `retired: true` marks a
+// superseded generation (e.g. Haiku 3.5) so label-substring fallback lookups
+// (see pickBaseline) can prefer the current-generation row for an ambiguous
+// name like "haiku" instead of whichever retired row happens to also match.
 const PRICING = [
   { match: /fable-5|mythos-5/, label: 'Fable/Mythos 5', in: 10, out: 50 },
   { match: /opus-4-[5-9]/, label: 'Opus 4.5+', in: 5, out: 25 },
   { match: /opus/, label: 'Opus 4.1 and earlier', in: 15, out: 75 },
   sonnet5Row(),
   { match: /sonnet/, label: 'Sonnet 4.x', in: 3, out: 15 },
-  { match: /haiku-3-5|3-5-haiku/, label: 'Haiku 3.5', in: 0.8, out: 4 },
+  { match: /haiku-3-5|3-5-haiku/, label: 'Haiku 3.5', in: 0.8, out: 4, retired: true },
   { match: /haiku/, label: 'Haiku 4.5', in: 1, out: 5 },
 ];
 
@@ -149,9 +152,17 @@ function costUSD(t, price, withCache) {
 
 function pickBaseline(buckets, requested) {
   if (requested) {
-    const p = PRICING.find((x) => x.match.test(requested) || x.label.toLowerCase().includes(requested.toLowerCase()));
-    if (!p) throw new Error(`--baseline "${requested}" matches no known model tier`);
-    return p;
+    // Prefer an exact/regex match — the same test used to price real usage —
+    // so a plain "haiku" resolves the way an actual haiku model id would.
+    // Only fall back to matching against the display label when no row's
+    // regex matches the requested string, and among label matches prefer a
+    // current-generation row over a retired one (e.g. don't let "Haiku 3.5"
+    // silently win over "Haiku 4.5" for a bare "haiku" label substring).
+    const regexHit = PRICING.find((x) => x.match.test(requested));
+    if (regexHit) return regexHit;
+    const labelHits = PRICING.filter((x) => x.label.toLowerCase().includes(requested.toLowerCase()));
+    if (labelHits.length === 0) throw new Error(`--baseline "${requested}" matches no known model tier`);
+    return labelHits.find((x) => !x.retired) || labelHits[0];
   }
   const present = [...buckets.values()].map((b) => b.price).filter(Boolean);
   if (present.length === 0) return PRICING[0];

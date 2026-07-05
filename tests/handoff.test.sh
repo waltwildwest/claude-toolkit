@@ -4,7 +4,7 @@
 # Tier 2 exercises real tmux on a private socket, then tears it down.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SPAWN="$ROOT/skills/handoff/handoff-spawn.js"
+SPAWN="$ROOT/plugins/handoff/skills/handoff/handoff-spawn.js"
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s  <<%s>>\n' "$1" "${2:-}"; fail=$((fail+1)); }

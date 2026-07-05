@@ -18,8 +18,45 @@
 // Disable entirely with ROUTE_DETECT=off (or 0/false). Local only, no network, no deps.
 
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const DISABLED = /^(off|0|false|no)$/i.test(process.env.ROUTE_DETECT || '');
+
+// Allow-list of tiers a learned rule may name. Anything else is dropped.
+const VALID_TIERS = ['haiku', 'sonnet', 'opus', 'top'];
+
+// A learned rule's `match` field is injected into model context (via the nudge
+// sentence below), so it must be a short, plain, single-line token — no control
+// characters, no HTML/template-ish syntax, no quoting characters that could help
+// break out of the sentence it's embedded in.
+const VALID_MATCH_RE = /^[A-Za-z0-9][A-Za-z0-9 _.\/-]{2,79}$/;
+
+// route-rules.json is written by route-learn from your own past reviews, but it's
+// still an external file on disk — treat every field as untrusted input. A rule
+// that fails validation is dropped entirely: never matched against, never injected.
+function validRule(r) {
+  if (!r || typeof r !== 'object') return false;
+  if (typeof r.tier !== 'string' || !VALID_TIERS.includes(r.tier)) return false;
+  if (typeof r.match !== 'string' || !VALID_MATCH_RE.test(r.match)) return false;
+  return true;
+}
+
+// Learned routing rules that route-learn has proposed and you've applied, if any.
+// Absent file = no learned rules = base behavior unchanged.
+function learnedRules() {
+  try {
+    const p = path.join(process.env.HOME || os.homedir(), '.claude', 'route-learn', 'route-rules.json');
+    const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const rules = Array.isArray(r.rules) ? r.rules : [];
+    return rules.filter(validRule);
+  } catch { return []; }
+}
+
+function matchLearned(text) {
+  const t = text.toLowerCase();
+  return learnedRules().filter((r) => r && typeof r.match === 'string' && t.includes(r.match.toLowerCase()));
+}
 
 // Signal groups. Each is a list of regexes; a group "fires" if any matches.
 // Ordered by how specific the resulting nudge is: cost > fanout > grunt.
@@ -100,20 +137,47 @@ function main() {
 
   const text = args.prompt != null ? args.prompt : promptFromPayload(readStdin());
   const fired = detect(text || '');
+  const learned = matchLearned(text || '');
 
   if (args.explain) {
-    console.log(fired.length ? `route-detect: ${fired.join(', ')}` : 'route-detect: no signals');
+    const parts = [...fired];
+    if (learned.length) parts.push('learned:' + learned.map((r) => `${r.match}->${r.tier}`).join(','));
+    console.log(parts.length ? `route-detect: ${parts.join(', ')}` : 'route-detect: no signals');
     return 0;
   }
-  if (fired.length === 0) return 0; // silent on the vast majority of prompts
+  if (fired.length === 0 && learned.length === 0) return 0; // silent on the vast majority of prompts
 
-  // Lead with the most specific group that fired.
-  const lead = fired[0];
-  const context = NUDGE[lead];
+  // A learned rule (from YOUR own reviews) is higher-signal than a generic pattern, so lead with it.
+  let context;
+  if (learned.length) {
+    const r = learned[0];
+    // Never advise delegating UP to opus/top — route-plan forbids that direction.
+    // For haiku/sonnet, name the tier; for opus/top, say to keep it rather than delegate down.
+    const tierAdvice = (r.tier === 'opus' || r.tier === 'top')
+      ? 'this kind of task tends to need a stronger model, so keep it on your model rather than delegating it down'
+      : `routing it to ${r.tier}`;
+    // Wrap the (already char-class-validated) match in brackets so it reads as a quoted
+    // label, not a directive, even if someone planted natural-language text in it.
+    const learnedSentence = `You've logged [${r.match}]-type work as mis-sized before; route-learn suggests ${tierAdvice}.`;
+    // Only append the generic signal-group nudge if a built-in signal actually fired —
+    // otherwise it's a false assertion (e.g. claiming the request "looks mechanical").
+    context = fired.length
+      ? `${learnedSentence} ${NUDGE[fired[0]]}`
+      : `${learnedSentence} Run route-plan.js to size it.`;
+  } else {
+    context = NUDGE[fired[0]];
+  }
+
+  // Bound the FULL injected string (prefix included) to 600 chars.
+  const MAX_CONTEXT_LEN = 600;
+  const PREFIX = '[route] ';
+  let additionalContext = PREFIX + context;
+  if (additionalContext.length > MAX_CONTEXT_LEN) additionalContext = additionalContext.slice(0, MAX_CONTEXT_LEN);
+
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
-      additionalContext: `[route] ${context}`,
+      additionalContext,
     },
   }));
   return 0;

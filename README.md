@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin%20%C2%B7%20skill%20%C2%B7%20command-black.svg)](https://claude.com/claude-code)
-[![tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](./tests/)
+[![tests](https://img.shields.io/badge/tests-143%20passing-brightgreen.svg)](./tests/)
 
 Tools I actually use every day, packaged so you can install one in under a minute and read exactly how it works. No framework, no lock-in, nothing phones home. These are standalone cuts of things that live in my own setup.
 
@@ -50,7 +50,7 @@ cd claude-toolkit && ./install.sh
 
 Installs the `handoff`, `pickup`, and `route` **skills** into `~/.claude/skills/` and the thin `/handoff` and `/route` **commands** into `~/.claude/commands/`. To uninstall, delete those.
 
-> **Run `install.sh` yourself — don't ask Claude to.** If you ask Claude Code to run the installer for you in auto mode, its permission classifier will refuse: an agent writing executable code into `~/.claude/` is exactly the kind of action it's designed to hand back to a human. That's Claude's safety model working, not a bug in the toolkit — and it's why the plugin path exists. The installer is 49 lines; read it, then run it.
+> **Run `install.sh` yourself — don't ask Claude to.** If you ask Claude Code to run the installer for you in auto mode, its permission classifier will refuse: an agent writing executable code into `~/.claude/` is exactly the kind of action it's designed to hand back to a human. That's Claude's safety model working, not a bug in the toolkit — and it's why the plugin path exists. The installer is 60 lines; read it, then run it.
 
 ### Use it
 
@@ -105,8 +105,8 @@ Reads the most recent brief in `~/.claude/handoffs/`, states the task, and conti
 $ /route report
   actual cost                     $6500.00
   naive baseline (no cache)       $63400.00   you saved 89.7%
-  same top model, with cache      $10600.00   routing alone saved 38.2%
-  your mix, cache off             $41400.00   caching alone saved 83.7%
+  same top model, with cache      $10600.00   routing alone saved 38.7%
+  your mix, cache off             $41400.00   caching alone saved 84.3%
 
   The headline number is the naive baseline. The other two keep it honest.
   (token prices as of 2026-07-04; Sonnet 5 intro pricing auto-expires 2026-09-01)
@@ -143,20 +143,30 @@ The honest ceiling: a hook **cannot change the model** (the harness forbids it �
 
 Task text and results always travel through files (`--task-file` / `--result-file`), never shell arguments, so arbitrary prompt content — backticks, `$(...)`, quotes — is never interpolated into a command line.
 
+### Learning from your own reviews (`route-learn`)
+
+The skill already reviews cheap-tier output before trusting it. At that moment it also knows whether the task went to the right tier, so it logs a one-line verdict (`right` / `too_low` / `too_high`). When a task-class gets judged wrong a few times, `route-learn review` recognizes the pattern and **proposes a routing rule** — e.g. *"`refactor` routed to haiku was judged too-low 3×, propose routing it to sonnet"* — with the raw evidence shown. You `apply` what you agree with; route-detect then surfaces that lesson the next time a matching prompt arrives.
+
+Honest by construction:
+
+- **Propose by default, opt-in auto.** `ROUTE_LEARN=auto` skips approval once you trust it (set-and-forget); `ROUTE_LEARN=off` disables it. Every applied change is backed up, changelogged, and `revert`able.
+- **It tunes data, not code.** The only thing that ever changes is a user-owned file (`~/.claude/route-learn/route-rules.json`) the scripts consult — never a script, never `SKILL.md`. So even full-auto is config tuning with an undo, not an agent rewriting its own logic.
+- **A remembered preference, not a statistic.** It acts on a handful of repeated sightings (like a person noticing "that keeps breaking"), shows the counts, and never claims a measured quality result or a rate it can't support. The learning is yours, from your reviews.
+
+This is the [Hermes Agent](https://github.com/UniM0cha/claude-self-improving-skills) self-improving-skills idea, kept to the safe half: qualitative pattern-memory with a human in the loop and no code self-modification.
+
 ## Repository layout
 
 ```
-skills/handoff/   SKILL.md + handoff-spawn.js   the tool (source of truth; CLI + desktop)
-skills/pickup/    SKILL.md                       loads the latest brief in a new session
-skills/route/     SKILL.md + route-plan.js + route-detect.js + route-report.js + route-cache.js   model-aware routing, activation hook, cost report, result cache
-commands/handoff.md · commands/route.md          thin CLI wrappers for install.sh installs
-.claude-plugin/marketplace.json                  plugin marketplace manifest (Option A)
-hooks/hooks.json                                 UserPromptSubmit activation hook (auto-loaded by the plugin)
-tests/handoff.test.sh · tests/route*.test.sh     102 tests (routing, model-aware plan, activation signals, safety, cost math, baselines, cache)
+plugins/handoff/   skills/{handoff,pickup} + commands/handoff.md
+plugins/route/     skills/route/* + commands/route.md + hooks/hooks.json
+                   (model-aware routing, activation + learn hooks, cost report, cache)
+.claude-plugin/marketplace.json   marketplace manifest; each plugin's source is its own subdir
+tests/*.test.sh    143 tests (routing, model-aware plan, activation, self-tuning, safety, cost, cache)
 install.sh · LICENSE
 ```
 
-The same `skills/` folders back both install paths — the marketplace manifest just points at them, so there is exactly one source of truth.
+Each plugin lives in its own `plugins/<name>/` subdirectory, which is its marketplace `source`. That scoping is deliberate: hooks auto-load from a plugin's root, so keeping route's `hooks/` under `plugins/route/` means installing `handoff` alone never loads route's hooks. `install.sh` copies from both subdirs, so the copy and plugin paths stay in sync.
 
 ## Requirements
 

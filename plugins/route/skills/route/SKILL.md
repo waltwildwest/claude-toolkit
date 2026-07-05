@@ -13,8 +13,14 @@ way — do this once, early, and reuse `$SKILL_DIR`:
 ```bash
 SKILL_DIR="${CLAUDE_SKILL_DIR}"
 [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"
+[ -d "$SKILL_DIR" ] || SKILL_DIR="$(find "$HOME/.claude/plugins" -type d -path '*/skills/route' 2>/dev/null | head -1)"
 CACHE="$SKILL_DIR/route-cache.js"
 ```
+
+(The three-line resolve covers all installs: `${CLAUDE_SKILL_DIR}` is substituted to the
+real skill dir at load time; the `~/.claude/skills/route` fallback covers `install.sh`
+copies; the `find` under `~/.claude/plugins` covers a plugin install if the variable was
+not substituted.)
 
 `${CLAUDE_SKILL_DIR}` is replaced by literal text at skill-load time — the `:-default`
 shorthand never fires, it only ever gets an empty or missing directory, so it never
@@ -37,7 +43,7 @@ to your current model, never to fixed tiers. First read the plan for the model y
 costly as your own:
 
 ```bash
-SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"
+SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$(find "$HOME/.claude/plugins" -type d -path '*/skills/route' 2>/dev/null | head -1)"
 command -v node >/dev/null && node "$SKILL_DIR/route-plan.js"
 ```
 
@@ -79,7 +85,7 @@ and it must never be interpolated into a command line.
    check the cache:
 
    ```bash
-   SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"
+   SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$(find "$HOME/.claude/plugins" -type d -path '*/skills/route' 2>/dev/null | head -1)"
    CACHE="$SKILL_DIR/route-cache.js"
    command -v node >/dev/null || { echo "route: cache/report need a system Node.js on PATH; skipping"; exit 0; }
    KEY=$(node "$CACHE" key --task-file "$PROMPT_FILE" --file "<input1>" [--file "<input2>"...])
@@ -94,7 +100,7 @@ to a temp file with the **Write tool**, then in *another* self-contained bash bl
 re-derive the same key (the prompt file from step 1 is still on disk) and store it:
 
 ```bash
-SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"
+SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$(find "$HOME/.claude/plugins" -type d -path '*/skills/route' 2>/dev/null | head -1)"
 CACHE="$SKILL_DIR/route-cache.js"
 command -v node >/dev/null || { echo "route: cache/report need a system Node.js on PATH; skipping"; exit 0; }
 KEY=$(node "$CACHE" key --task-file "$PROMPT_FILE" --file "<input1>" [--file "<input2>"...])
@@ -135,7 +141,7 @@ comfortably, or when merging would cost more attention than the work itself.
 the same node guard from above:
 
 ```bash
-SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"
+SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$(find "$HOME/.claude/plugins" -type d -path '*/skills/route' 2>/dev/null | head -1)"
 REPORT="$SKILL_DIR/route-report.js"
 command -v node >/dev/null || { echo "route: cache/report need a system Node.js on PATH; skipping"; exit 0; }
 node "$REPORT" [--days 30] [--project substr] [--json]
@@ -148,3 +154,26 @@ call, no cache), the top model with cache (what routing alone saved), and the ac
 with cache off (what caching alone saved). Always quote a savings number together with
 its baseline — the flattering number and the honest one are both in the output on
 purpose.
+
+**5. Log the verdict so routing gets better (optional).** You already reviewed the
+delegated output in steps 2-3. At that moment you also know whether the task went to the
+right tier. Record it in one line, so recurring mis-sizing can be caught and fixed:
+
+```bash
+SKILL_DIR="${CLAUDE_SKILL_DIR}"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$HOME/.claude/skills/route"; [ -d "$SKILL_DIR" ] || SKILL_DIR="$(find "$HOME/.claude/plugins" -type d -path '*/skills/route' 2>/dev/null | head -1)"
+command -v node >/dev/null || exit 0
+node "$SKILL_DIR/route-learn.js" log --matched "<stable task-class, e.g. refactor>" --tier <haiku|sonnet|opus|top> --verdict <right|too_low|too_high>
+```
+
+Use a *stable* task-class label (the same word for the same kind of work) so patterns can
+accumulate. `too_low` = the cheap model struggled and you had to correct or escalate it;
+`too_high` = it was trivially perfect and could have gone cheaper; `right` = well sized.
+
+When enough verdicts pile up, `node "$SKILL_DIR/route-learn.js" review` recognizes a
+recurring pattern (a task-class judged wrong several times) and, by default, *proposes* a
+routing rule for you to approve (`route-learn apply <id>`). Set `ROUTE_LEARN=auto` to skip
+approval once you trust it, or `ROUTE_LEARN=off` to disable. It only ever writes a
+user-owned data file (`~/.claude/route-learn/route-rules.json`, backed up, changelogged,
+revertable) that route-detect consults to surface the lesson on matching prompts — never code, never this skill. The
+number of sightings before a proposal is a remembered preference, not a statistical rate;
+route-learn shows the raw evidence so you judge it, and never claims a quality measurement.

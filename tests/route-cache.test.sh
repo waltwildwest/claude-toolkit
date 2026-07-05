@@ -3,7 +3,7 @@
 # Fully isolated: temp HOME per test group, no side effects.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CACHE="$ROOT/skills/route/route-cache.js"
+CACHE="$ROOT/plugins/route/skills/route/route-cache.js"
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s  <<%s>>\n' "$1" "${2:-}"; fail=$((fail+1)); }

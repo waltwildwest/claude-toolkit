@@ -3,7 +3,7 @@
 # Fully isolated: temp HOME, crafted transcripts, no side effects.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPORT="$ROOT/skills/route/route-report.js"
+REPORT="$ROOT/plugins/route/skills/route/route-report.js"
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s  <<%s>>\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -175,7 +175,16 @@ OUT=$( entry claude-sonnet-5-x m1 1000000 2000000 0 0 0 | ROUTE_REPORT_NOW=2026-
 OUT=$( entry claude-sonnet-5-x m1 1000000 2000000 0 0 0 | ROUTE_REPORT_NOW=2026-09-02T00:00:00Z run --json )
 { has "$OUT" '"actualUSD": 33,' && ! has "$OUT" 'intro pricing'; } && ok "sonnet-5 standard pricing after cutover" || no "sonnet-5 standard" "$OUT"
 
-# 24. --json schema: exact top-level key set and perModel[0] key set, so a
+# 24. --baseline haiku resolves to current-gen Haiku 4.5 ($1/$5), not the
+#     retired Haiku 3.5 ($0.8/$4) via label-substring (fix 4). Opus usage of
+#     1M in + 1M out against a haiku baseline: naive (no cache) =
+#     1M*$1 + 1M*$5 = $6.00 if priced at Haiku 4.5; it would be
+#     1M*$0.8 + 1M*$4 = $4.80 if it wrongly picked the retired Haiku 3.5 tier,
+#     so this fails if the legacy tier wins.
+OUT=$( entry claude-opus-4-8 m1 1000000 1000000 0 0 0 | run --baseline haiku --json )
+{ has "$OUT" '"baseline": "Haiku 4.5"' && has "$OUT" '"naiveNoCache": 6,'; } && ok "--baseline haiku prices at Haiku 4.5 (\$1/\$5), not \$0.8/\$4" || no "--baseline haiku" "$OUT"
+
+# 25. --json schema: exact top-level key set and perModel[0] key set, so a
 #     silent field rename breaks this test.
 OUT=$( entry claude-haiku-4-5 m1 1000000 1000000 0 0 0 | run --json )
 SCHEMA_CHECK=$(printf '%s' "$OUT" | node -e '
