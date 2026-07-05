@@ -1,9 +1,10 @@
 ---
 name: re-searcher
-description: Persistent research vault for Claude Code. Use for any research question ("/research <q>", "research X", "look into", "what's the state of", "compare A and B from sources") and for recall ("have we researched", "what did we find about"). Recall runs first — prior claims come back as dated claims to spot-check, never re-derived; new runs persist plans, per-agent findings, cached sources and quote-verified claims into a git-backed local vault.
+description: Persistent research vault for Claude Code. Use for any research question ("/research <q>", "research X", "look into", "what's the state of", "compare A and B from sources") and for recall ("have we researched", "what did we find about"). Recall runs first — prior claims come back as dated claims to spot-check, never re-derived. One-off questions get a QUICK unvaulted answer in ~a minute; reusable project research persists plans, per-agent findings, cached sources and quote-verified claims into a git-backed local vault.
 ---
 
-Research is a state machine: RECALL → CLASSIFY → RUN (light | full) → PERSIST → ANSWER.
+Research is a state machine: RECALL → CLASSIFY → RUN (quick | light | full) → PERSIST → ANSWER
+(the quick path answers unvaulted and skips PERSIST — lazy harvest covers it).
 Scripts enforce every rule that matters — when a script prints a warning or an
 instruction, follow it; do not improvise around a non-zero exit.
 
@@ -37,15 +38,38 @@ Use 2–4 probe terms (the question's nouns + likely aliases). By exit code:
   `node "$SKILL_DIR/vault-search.js" --add-alias <slug> "<term that missed>" --vault "$VAULT"`
 - **1:** vault missing or broken — surface the script's message, offer vault-init.
 
-## 2 · CLASSIFY the question
+## 2 · CLASSIFY the question — reuse first, then depth
 
-- **straightforward** (one factual answer, single axis) → LIGHT: 0–1 agents, 3–10 tool calls.
+**Axis 1 — reuse: "will this answer be consulted again, or is it a one-off?"** Ask it of
+yourself on every question; never block the user with it. One-off signals: "is there a",
+"does X exist", "quick check", a yes/no or single-name answer, idle curiosity, no tie to an
+ongoing project. Reuse signals: feeds a project decision, comparisons you'll build on, facts
+with shelf life you'd hate to re-derive, the user says "research" about their own work.
+When unsure, default QUICK — the unvaulted breadcrumb makes correction free.
+
+**Axis 2 — depth (only for reusable questions):**
+- **one-off** (any depth) → QUICK: 0 agents, 2–4 tool calls, nothing vaulted.
+- **straightforward + reusable** (one factual answer, single axis) → LIGHT: 0–1 agents, 3–10 tool calls.
 - **breadth-first** (compare N things) → FULL: 2–4 agents (one per 1–2 things).
-- **depth-first** ("state of X", open landscape) → FULL: 3–5 agents, hard cap 10.
+- **depth-first** (open landscape, or the user says "thorough") → FULL: 3–5 agents, hard cap 10.
+  Existence checks ("does a tool for X exist?") are NOT depth-first — they're QUICK, or LIGHT
+  if the answer will seed a project.
 Announce the decomposition in one line as you launch ("N agents: roles — say stop to
 adjust") and keep going; block for approval only on unusual cost, never on agent count.
 
-## 3 · LIGHT path (most runs — keep it ≤1.5x plain asking)
+## 3 · QUICK path (one-offs — target ≤1 minute, nothing vaulted)
+
+No run dir, no plan.md, no findings, no claims. Recall already ran (step 1) — a hit answers
+with zero searches.
+1. 2–4 web searches/fetches, independent calls batched in ONE parallel block. The budget is
+   a ceiling, not a quota — stop the moment the question is answered.
+2. Answer: verdict first, source links inline, then append exactly ONE ignorable line:
+   `(unvaulted — "/research save" to keep)`. The Stop-hook inbox pointer means
+   /research save or the doctor can still promote this session to a vault run later.
+If mid-search the question turns out deeper than it looked (conflicting sources, a landscape,
+real stakes), say so in one line and upgrade to LIGHT or FULL — never silently stay shallow.
+
+## 4 · LIGHT path (most vaulted runs — keep it ≤1.5x plain asking)
 
 1. `node "$SKILL_DIR/vault-save.js" --new-run --topic <slug> --session <id> --vault "$VAULT"`
 2. Write plan.md into the run dir (`node "$SKILL_DIR/vault-init.js" --template plan`) —
@@ -57,7 +81,7 @@ adjust") and keep going; block for approval only on unusual cost, never on agent
    NO claims authoring on the light path (the doctor mines them later, stage 3).
 6. Answer: verdict + the provenanceLine from the save JSON.
 
-## 4 · FULL path (fan-out) — details in references/full-path.md
+## 5 · FULL path (fan-out) — details in references/full-path.md
 
 1. Allocate the run (`--new-run`, as above).
 2. **Write plan.md BEFORE fan-out** — frontmatter (topic/title/aliases/questions/scope)
@@ -65,34 +89,46 @@ adjust") and keep going; block for approval only on unusual cost, never on agent
    completeness contract.
 3. Brief each agent from `--template task-spec`: one core objective, scope boundary,
    output file, run-dir path, vault-fetch usage. Agents Write full raw findings to their
-   manifest file and return ONLY a ≤2k summary + path.
-4. Gate: `node "$SKILL_DIR/vault-save.js" --check-staging <run-dir>` — exit 2 lists
+   manifest file and return ONLY a ≤2k summary + path. Speed rules for the briefs:
+   - **Cheap tier for grunt roles:** searching, fetching and findings-writing are
+     mechanical — dispatch those agents on the cheap tier (haiku); synthesis and claims
+     stay with you. Use a stronger tier only for an axis that needs judgment calls.
+   - **Hard budget in every brief:** add `BUDGET: ≤12 tool calls — a ceiling, not a
+     quota; stop early once your objective is answered`.
+   - **Parallel inside agents:** tell agents to batch independent searches/fetches in
+     one parallel block instead of sequential calls.
+4. **Relay progress:** as each agent lands, give the user its one-line verdict — never go
+   silent for the whole fan-out.
+5. Gate: `node "$SKILL_DIR/vault-save.js" --check-staging <run-dir>` — exit 2 lists
    missing/stub findings: re-request once or record the hole under Gaps.
-5. Read the findings FILES (not the return blurbs) → synthesis.md
+6. Read the findings FILES (not the return blurbs) → synthesis.md
    (Verdict · Key claims · Gaps · How to re-verify · Related).
-6. Stage claims-staged.jsonl per references/claims.md — copy quotes from the cached
+7. Stage claims-staged.jsonl per references/claims.md — copy quotes from the cached
    extractions you actually read; vault-save verifies mechanically and downgrades what
    it can't find (honest provenance beats impressive provenance).
-7. `node "$SKILL_DIR/vault-save.js" <run-dir> --session <id> --transcript <path> --vault "$VAULT"`
+8. `node "$SKILL_DIR/vault-save.js" <run-dir> --session <id> --transcript <path> --vault "$VAULT"`
    then read the JSON: quarantined claims → mention "claims: partial" in the answer.
-8. Answer: verdict + provenanceLine.
+9. Answer: verdict + provenanceLine.
 
-## 5 · ANSWER format (hard rule)
+## 6 · ANSWER format (hard rule)
 
 Verdict first, then EXACTLY ONE provenance line — reuse the script's line verbatim
 (`vault · <slug> · researched <date> · <freshness>` or `fresh run · N agents · saved to …`).
+QUICK path instead uses inline source links + the `(unvaulted — "/research save" to keep)`
+line — there is no run, so no provenance line.
 Add lines ONLY on anomaly: near-miss recovery, staleness warning, claims partial or
-downgraded, contradiction flag, staging gap. Silence is a trust signal — no term lists,
-no hit/miss tables in chat (that audit trail is already in metrics.jsonl).
+downgraded, contradiction flag, staging gap, quick→deeper upgrade. Silence is a trust
+signal — no term lists, no hit/miss tables in chat (that audit trail is already in
+metrics.jsonl).
 
-## 6 · Corrections
+## 7 · Corrections
 
 Contradicting claims are BOTH served, flagged, dated — never silently pick one. To fix
 the record (/research correct): stage supersede/retract/contradict events and apply with
 `vault-save.js --events` — procedure in references/correct.md. The registry is
 append-only; corrections are events, never edits.
 
-## 7 · Capture without ceremony (harvest)
+## 8 · Capture without ceremony (harvest)
 
 With a vault present, every session gets a Stop-hook pointer in inbox.jsonl automatically —
 pointers only; mining is lazy. Three ways a past session becomes a vault run:
@@ -104,10 +140,10 @@ pointers only; mining is lazy. Three ways a past session becomes a vault run:
 - **Recall breadcrumbs:** a miss may print `unharvested session … may cover this — harvest:`
   lines. Offer to run exactly that command, then re-run the search. Never harvest without a
   recall or user trigger (mining needs a paying customer).
-After answering an ad-hoc research question that didn't go through a run, you may append ONE
-ignorable line: `(unvaulted — "/research save" to keep)`. Never a blocking question.
+The QUICK path's `(unvaulted — "/research save" to keep)` line is this mechanism: any quick
+or ad-hoc answer can be promoted later at zero extra cost. Never a blocking question.
 
-## 8 · LIBRARIAN (/research doctor · export)
+## 9 · LIBRARIAN (/research doctor · export)
 
 Doctor = deterministic sweep first, LLM passes second (never the reverse):
 `node "$SKILL_DIR/vault-doctor.js" --vault "$VAULT"` applies the safe fixes (dead
