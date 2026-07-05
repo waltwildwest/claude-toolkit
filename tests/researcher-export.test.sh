@@ -60,4 +60,7 @@ grep -q 'original: http://docs.example/auth' "$W/lean.md" && ok "links survive -
 # 3. unknown topic -> loud exit 1
 node "$E" nope-topic --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown topic rejected" || no "unknown" ""
 
+# 4. path traversal in slug is refused
+node "$E" "../../etc" --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "export refuses ../ traversal" || no "traversal" ""
+
 echo; echo "vault-export: $pass passed, $fail failed"; [ $fail -eq 0 ]

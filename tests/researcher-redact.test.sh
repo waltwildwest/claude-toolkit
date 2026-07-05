@@ -71,4 +71,9 @@ node "$R" clm_nope --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown cla
 node "$R" not-a-source --vault "$V" >/dev/null 2>&1; [ $? -eq 1 ] && ok "unknown source rejected" || no "unknown source" ""
 grep -c '"id":"clm_dep"' "$V/claims.jsonl" | grep -qx 1 && ok "claim records never edited in place" || no "append-only" ""
 
+# 5. path traversal in source id is refused before any fs op
+CANARY="$W/canary-outside.md"; echo secret > "$CANARY"
+node "$R" "../../canary-outside" --vault "$V" >/dev/null 2>&1; rc=$?
+{ [ $rc -eq 1 ] && [ -f "$CANARY" ]; } && ok "redact refuses ../ traversal, canary intact" || no "traversal" "rc=$rc exists=$([ -f "$CANARY" ] && echo y || echo n)"
+
 echo; echo "vault-redact: $pass passed, $fail failed"; [ $fail -eq 0 ]

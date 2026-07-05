@@ -78,6 +78,15 @@ function slugify(s) {
 
 function sha8(s) { return crypto.createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 10); }
 
+// Containment guard for any CLI-supplied id/slug that becomes a path segment.
+// Vault ids are alnum plus - _ . (source ids carry '--', claim ids 'clm_',
+// topic slugs [a-z0-9-]); anything with a separator or '..' is a traversal
+// attempt and must never reach path.join. Callers die() loud on false.
+function isSafeName(s) {
+  return typeof s === 'string' && s.length > 0 && s.length <= 200
+    && /^[A-Za-z0-9._-]+$/.test(s) && !s.includes('..');
+}
+
 function newId(prefix, seed, taken) {
   let id = prefix + '_' + sha8(seed);
   let n = 2;
@@ -202,4 +211,4 @@ function resolveTerminal(claims, id, seen) {
   return [];
 }
 
-module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
+module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, isSafeName, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };

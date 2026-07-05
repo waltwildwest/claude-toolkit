@@ -20,6 +20,7 @@ function die(msg) { process.stderr.write('vault-export: ' + msg + '\n'); process
 function main() {
   const slug = process.argv[2];
   if (!slug || slug.startsWith('--')) die('usage: vault-export.js <topic-slug> [--vault <dir>] [--out <file>] [--no-extracts]');
+  if (!lib.isSafeName(slug)) die('unsafe slug "' + slug + '" — slugs are alnum plus - _ . with no path separators or ".." (traversal refused)');
   const vault = lib.resolveVault(strFlag('--vault'));
   const topicDir = path.join(vault, 'topics', slug);
   if (!fs.existsSync(topicDir)) die('no topic "' + slug + '" in the vault (topics/' + slug + ' missing)');

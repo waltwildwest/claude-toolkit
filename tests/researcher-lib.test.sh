@@ -159,4 +159,13 @@ if (c.status !== "active") process.exit(2);
 if (c.events.length !== 1) process.exit(3);
 ' "$LIB" && ok "foldClaims downgrade lowers provenance, keeps status" || no "downgrade fold" "rc=$?"
 
+# 13. isSafeName rejects traversal, accepts real ids/slugs
+node -e '
+const lib = require(process.argv[1]);
+const good = ["clm_abc123", "aaaa1111--host--slug", "mcp-auth", "topic_1", "a.b"];
+const bad = ["../etc/passwd", "a/b", "..", "a..b", "/abs", "x\\y", "", "a".repeat(201)];
+for (const g of good) if (!lib.isSafeName(g)) { console.error("rejected good: " + g); process.exit(1); }
+for (const b of bad) if (lib.isSafeName(b)) { console.error("accepted bad: " + JSON.stringify(b)); process.exit(2); }
+' "$LIB" && ok "isSafeName rejects traversal, accepts real ids" || no "isSafeName" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

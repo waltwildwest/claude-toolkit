@@ -88,6 +88,7 @@ function redactSource(vault, id, reason) {
 function main() {
   const id = process.argv[2];
   if (!id || id.startsWith('--')) die('usage: vault-redact.js <source-id | claim-id> [--vault <dir>] [--reason "<r>"]');
+  if (!lib.isSafeName(id)) die('unsafe id "' + id + '" — ids are alnum plus - _ . with no path separators or ".." (traversal refused)');
   const vault = lib.resolveVault(strFlag('--vault'));
   const reason = strFlag('--reason');
   const out = id.startsWith('clm_') ? redactClaim(vault, id, reason) : redactSource(vault, id, reason);
