@@ -71,11 +71,15 @@ OUT=$(node "$SR" authz --vault "$V"); rcode=$?
 [ $rcode -eq 0 ] && has "$OUT" 'mcp-auth' && ok "learned alias hits" || no "alias hit" "rc=$rcode $OUT"
 git -C "$V" log --oneline -1 | grep -q "alias" && ok "alias learning auto-commits" || no "alias git" ""
 
-# 8. missing vault fails loud (never 0 hits)
+# 8. add-alias with unknown slug fails loud and must NOT leak the lock
+node "$SR" --add-alias no-such-topic "x" --vault "$V" >/dev/null 2>&1; rcode=$?
+{ [ $rcode -eq 1 ] && [ ! -d "$V/.lock" ]; } && ok "unknown slug: exit 1, no lock leak" || no "lock leak" "rc=$rcode lock=$([ -d "$V/.lock" ] && echo held || echo free)"
+
+# 9. missing vault fails loud (never 0 hits)
 ERR=$(RESEARCH_VAULT_DIR= node "$SR" anything --vault "$W/novault" 2>&1 >/dev/null); rcode=$?
 { [ $rcode -eq 1 ] && has "$ERR" 'vault-init'; } && ok "missing vault fails loud" || no "missing vault" "rc=$rcode $ERR"
 
-# 9. --json emits parseable structure
+# 10. --json emits parseable structure
 OUT=$(node "$SR" mcp --vault "$V" --json)
 node -e 'const r=JSON.parse(process.argv[1]); process.exit(Array.isArray(r.hits) && r.hits[0].provenanceLine ? 0 : 1)' "$OUT" \
   && ok "--json output" || no "json" "$OUT"

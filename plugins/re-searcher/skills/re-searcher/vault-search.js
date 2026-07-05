@@ -51,9 +51,11 @@ function addAlias(vault) {
     process.stderr.write('usage: vault-search.js --add-alias <slug> <alias> [--vault <dir>]\n');
     process.exit(1);
   }
+  // validate OUTSIDE the lock (reads are lock-free) — process.exit inside
+  // withLock's fn would skip its finally and leak the lock dir for 5 minutes
+  const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
+  if (!prev) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
   lib.withLock(vault, () => {
-    const prev = lastPerSlug(lib.readJsonl(path.join(vault, 'index.jsonl')).records).get(slug);
-    if (!prev) { process.stderr.write('vault-search: no topic "' + slug + '" in the index\n'); process.exit(1); }
     const aliases = Array.from(new Set([].concat(prev.aliases || [], [alias])));
     lib.appendJsonl(path.join(vault, 'index.jsonl'), Object.assign({}, prev, { aliases }));
     lib.gitCommit(vault, 'research: learn alias "' + alias + '" for ' + slug);
