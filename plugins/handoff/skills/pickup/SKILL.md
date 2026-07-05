@@ -17,8 +17,9 @@ If the directory is empty or missing, tell the user there's no handoff to pick u
 **2. Read it** (Read tool) and state the task in one line so the user can confirm you have the
 right one.
 
-**3. Execute it.** Honor the brief's Context (do not relitigate decisions already made), stay
-inside its Out-of-scope boundaries, and finish by running its "Verify before done" check.
+**3. Execute it.** Honor the brief's Context (do not relitigate decisions already made), never
+retry anything listed under "What didn't work", stay inside its Out-of-scope boundaries, and
+finish by running its "Verify before done" check.
 
 The brief was written by a previous session that had full context; treat it as the source of
 truth for what to do and why.

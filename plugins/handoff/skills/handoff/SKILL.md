@@ -26,6 +26,10 @@ Run `mkdir -p ~/.claude/handoffs` first. Structure:
 - Decisions already made: <constraints the new session must NOT relitigate>
 - Gotchas: <anything you learned the hard way this session>
 
+## What didn't work
+<approaches tried and abandoned this session, with the exact reason each failed — so the new
+session never retries them. Omit the section if nothing failed.>
+
 ## Verify before done
 <the exact command/check that proves the task works>
 
