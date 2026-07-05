@@ -70,7 +70,7 @@ OUT=$(node "$F" "$BASE/challenge" --vault "$V"); rcode=$?
 
 # 5. size cap -> fetch-error
 OUT=$(node "$F" "$BASE/big" --vault "$V" --max-bytes 100000); rcode=$?
-{ [ $rcode -eq 1 ] && has "$OUT" '"status":"fetch-error"'; } && ok "size cap enforced" "rc=$rcode $OUT"
+{ [ $rcode -eq 1 ] && has "$OUT" '"status":"fetch-error"'; } && ok "size cap enforced" || no "size cap" "rc=$rcode $OUT"
 
 # 6. timeout -> fetch-error (fast)
 START=$(date +%s)
