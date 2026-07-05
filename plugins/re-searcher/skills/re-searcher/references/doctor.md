@@ -22,7 +22,7 @@ Ground rules (non-negotiable):
 
 ## 1 · PROMOTE (work.promote — provenance promotion)
 
-Per item {claim, statement, quote, source}: read sources/<source>.md and judge whether
+Per item {claim, topic, statement, quote, source}: read sources/<source>.md and judge whether
 the source genuinely SUPPORTS the statement (not merely contains the quote).
 - Supported → stage `{"op":"verify","claim":"<id>","by":"doctor","reason":"<one line>"}`.
 - Unsupported / quote out of context → leave it (verbatim-grounded is already honest).
