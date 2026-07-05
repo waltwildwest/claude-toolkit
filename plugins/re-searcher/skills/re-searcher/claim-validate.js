@@ -5,8 +5,8 @@
 // This file owns the claim schema so SKILL.md doesn't have to (spec Pillar 3):
 //   script-generated: v, id, run, date, topic
 //   hard-enforced (reject): non-empty statement; valid enums; source resolves
-//     when provenance claims grounding; staged provenance/events may not
-//     claim what only the doctor grants (externally-verified / verify)
+//     when provenance claims grounding; staged provenance may never claim
+//     externally-verified; verify events need ctx.doctor (vault-save --events --doctor)
 //   verified-with-downgrade: verbatim-grounded quotes must be found in the
 //     cached extraction (quote-verify ladder incl. markdown-stripped view);
 //     verified -> quote rewritten to exact source bytes; miss -> downgrade to
@@ -81,7 +81,9 @@ function validateClaim(rec, ctx) {
 
 function validateEvent(rec, ctx) {
   if (!OPS.includes(rec.op)) return { ok: false, reason: 'bad op: ' + rec.op + ' (supersede | contradict | retract)' };
-  if (rec.op === 'verify') return { ok: false, reason: 'verify events are doctor-granted (stage 3), not stageable' };
+  if (rec.op === 'verify' && !ctx.doctor) {
+    return { ok: false, reason: 'verify events are doctor-granted — apply via vault-save.js --events <file> --doctor' };
+  }
   if (!rec.claim || !ctx.knownIds.has(rec.claim)) return { ok: false, reason: 'unknown claim: ' + rec.claim };
   if (rec.op === 'supersede') {
     if (!rec.by || !ctx.knownIds.has(rec.by)) return { ok: false, reason: 'supersede needs by: <existing claim id>' };

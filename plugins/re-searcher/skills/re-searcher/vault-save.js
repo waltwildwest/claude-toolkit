@@ -10,7 +10,7 @@
 //                      [--transcript <path>]... [--light]
 //   node vault-save.js --new-run --topic <slug> [--session <id>] [--vault <dir>]
 //   node vault-save.js --check-staging <run-dir>
-//   node vault-save.js --events <file.jsonl> [--vault <dir>]
+//   node vault-save.js --events <file.jsonl> [--doctor] [--vault <dir>]
 //
 // stdout: one JSON line always. exit 0 ok (complete or partial claims),
 // 2 staging incomplete (--check-staging), 1 hard error.
@@ -226,6 +226,7 @@ function saveEvents(file) {
   const out = lib.withLock(vault, () => {
     // runId/topic are inert here — events-only validation never registers claims
     const ctx = claimCtx(vault, 'events', null, lib.today());
+    if (process.argv.includes('--doctor')) ctx.doctor = true; // the ONLY doctor-powered path — persist never sets this
     let applied = 0;
     const rejectedList = [];
     for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
@@ -262,7 +263,7 @@ function main() {
   if (ev) return saveEvents(ev);
   const runDir = process.argv[2];
   if (!runDir || runDir.startsWith('--')) {
-    die('usage: vault-save.js <run-dir> [--vault <dir>] [--session <id>] [--transcript <p>]... [--light] | --new-run --topic <slug> | --check-staging <run-dir> | --events <file>');
+    die('usage: vault-save.js <run-dir> [--vault <dir>] [--session <id>] [--transcript <p>]... [--light] | --new-run --topic <slug> | --check-staging <run-dir> | --events <file> [--doctor]');
   }
   return persist(path.resolve(runDir));
 }

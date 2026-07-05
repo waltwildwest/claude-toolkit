@@ -112,4 +112,19 @@ const r = JSON.parse(process.argv[1]);
 process.exit(r.ok && !("op" in r.record) ? 0 : 1);
 ' "$OUT" && ok "non-string op stripped from claims" || no "op strip" "$OUT"
 
+# 11. verify events: rejected without ctx.doctor, accepted with it; downgrade never stageable
+node -e '
+const cv = require(process.argv[1]);
+const ctx = { vault: "/nowhere", runId: "r", topic: "t", date: "2026-07-05",
+  takenIds: new Set(), knownIds: new Set(["clm_a"]), supersedeEdges: new Map() };
+const r1 = cv.validateEvent({op:"verify", claim:"clm_a", by:"doctor"}, ctx);
+if (r1.ok || !/doctor/.test(r1.reason)) process.exit(1);
+const r2 = cv.validateEvent({op:"verify", claim:"clm_a", by:"doctor"}, Object.assign({}, ctx, {doctor:true}));
+if (!r2.ok || r2.record.op !== "verify" || r2.record.v !== 1) process.exit(2);
+const r3 = cv.validateEvent({op:"verify", claim:"clm_nope"}, Object.assign({}, ctx, {doctor:true}));
+if (r3.ok) process.exit(3);
+const r4 = cv.validateEvent({op:"downgrade", claim:"clm_a"}, Object.assign({}, ctx, {doctor:true}));
+if (r4.ok) process.exit(4);
+' "$CV" && ok "verify needs ctx.doctor; unknown claim still rejected; downgrade never stageable" || no "doctor seam" "rc=$?"
+
 echo; echo "claim-validate: $pass passed, $fail failed"; [ $fail -eq 0 ]

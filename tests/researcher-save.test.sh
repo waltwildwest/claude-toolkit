@@ -246,4 +246,29 @@ OUT=$(node "$S" "$RUNE" --vault "$V" --light 2>/dev/null); rcode=$?
 [ -d "$V/.lock" ] && no "lock released after throw" "still held" || ok "lock released after throw"
 rm -rf "$V/topics/err-topic"
 
+# --- stage 3: --events --doctor (provenance promotion) ---
+
+# doctor-applied verify promotes provenance end-to-end; plain --events still rejects
+CID=$(node -e '
+const lib = require(process.argv[1]);
+const recs = lib.readJsonl(process.argv[2] + "/claims.jsonl").records;
+const c = recs.find((r) => r.id && !r.op);
+process.stdout.write(c ? c.id : "");
+' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V")
+[ -n "$CID" ] || no "doctor verify precondition" "no claim found in registry"
+printf '{"op":"verify","claim":"%s","by":"doctor","reason":"quote re-verified"}\n' "$CID" > "$W/verify-events.jsonl"
+OUT=$(node "$S" --events "$W/verify-events.jsonl" --vault "$V"); rcode=$?
+has "$OUT" '"applied":0' && ok "plain --events still rejects verify" || no "verify gate" "rc=$rcode $OUT"
+OUT=$(node "$S" --events "$W/verify-events.jsonl" --vault "$V" --doctor); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"applied":1'; } && ok "--doctor applies verify" || no "doctor apply" "rc=$rcode $OUT"
+node -e '
+const lib = require(process.argv[1]);
+const { claims } = lib.foldClaims(lib.readJsonl(process.argv[2] + "/claims.jsonl").records);
+const c = claims.get(process.argv[3]);
+process.exit(c && c.provenance === "externally-verified" ? 0 : 1);
+' "$ROOT/plugins/re-searcher/skills/re-searcher/vault-lib.js" "$V" "$CID" \
+  && ok "verify event promotes provenance in the fold" || no "promotion fold" ""
+OUT=$(node "$S" --events "$W/verify-events.jsonl" --vault "$V" --doctor)
+has "$OUT" '"applied":0' && ok "doctor re-apply dedupes (idempotent)" || no "verify dedupe" "$OUT"
+
 echo; echo "vault-save: $pass passed, $fail failed"; [ $fail -eq 0 ]
