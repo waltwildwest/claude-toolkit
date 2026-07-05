@@ -36,6 +36,7 @@ EOF
 
 # 1. redact the source: files gone, tombstone written, dependent downgraded
 OUT=$(node "$R" "$SID" --vault "$V" --reason "leaked credential"); rcode=$?
+REDACT_OUT="$OUT"
 { [ $rcode -eq 0 ] && has "$OUT" '"status":"redacted"' && has "$OUT" '"downgraded":["clm_dep"]' && has "$OUT" 'filter-repo'; } \
   && ok "source redacted with downgrade list" || no "redact" "rc=$rcode $OUT"
 [ ! -f "$V/sources/$SID.md" ] && [ ! -f "$V/sources/raw/aaaa1111.html" ] && ok "source files deleted" || no "files" ""
@@ -77,5 +78,12 @@ grep -c '"id":"clm_dep"' "$V/claims.jsonl" | grep -qx 1 && ok "claim records nev
 CANARY="$W/canary-outside.md"; echo secret > "$CANARY"
 node "$R" "../../canary-outside" --vault "$V" >/dev/null 2>&1; rc=$?
 { [ $rc -eq 1 ] && [ -f "$CANARY" ]; } && ok "redact refuses ../ traversal, canary intact" || no "traversal" "rc=$rc exists=$([ -f "$CANARY" ] && echo y || echo n)"
+
+# residual reporting: redact is honest that quote text survives in the append-only claim
+node -e '
+const o = JSON.parse(process.argv[1]);
+if (!o.residual || !Array.isArray(o.residual.quotedInClaims) || !o.residual.quotedInClaims.includes("clm_dep")) process.exit(1);
+if (!/claim quotes/.test(o.note)) process.exit(2);
+' "$REDACT_OUT" && ok "redact reports residual quote copies" || no "residual" "rc=$? $REDACT_OUT"
 
 echo; echo "vault-redact: $pass passed, $fail failed"; [ $fail -eq 0 ]

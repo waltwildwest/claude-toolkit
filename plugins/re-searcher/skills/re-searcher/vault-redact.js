@@ -68,9 +68,12 @@ function redactSource(vault, id, reason) {
     const claimsFile = path.join(vault, 'claims.jsonl');
     const { claims } = lib.foldClaims(lib.readJsonl(claimsFile).records);
     const downgraded = [];
+    const quoteResidue = [];
     const touched = new Set();
     for (const c of claims.values()) {
-      if (c.source !== id || c.status === 'retracted' || !GROUNDED.includes(c.provenance)) continue;
+      if (c.source !== id) continue;
+      if (c.quote && String(c.quote).trim()) quoteResidue.push(c.id); // quote text survives in the append-only record
+      if (c.status === 'retracted' || !GROUNDED.includes(c.provenance)) continue;
       lib.appendJsonl(claimsFile, { v: 1, op: 'downgrade', claim: c.id, by: 'redaction', to: 'model-asserted',
         date: lib.today(), reason: 'source redacted: ' + (reason || 'unspecified') });
       downgraded.push(c.id);
@@ -79,8 +82,12 @@ function redactSource(vault, id, reason) {
     for (const t of touched) views.regenTopic(vault, t);
     views.regenIndex(vault);
     lib.gitCommit(vault, 'research: redact source ' + id);
+    // Honest about incompleteness: deleting the source files does NOT scrub
+    // copies of its text that live in append-only claim quotes or in immutable
+    // run artifacts (findings/synthesis). Report them; a true purge is manual.
     return { status: 'redacted', kind: 'source', id, removed, downgraded,
-      note: 'raw bytes remain in the vault git history — run git filter-repo for a true purge' };
+      residual: { quotedInClaims: quoteResidue, runArtifacts: Array.from(touched).map((t) => 'topics/' + t + '/runs/**') },
+      note: 'source text may persist in claim quotes (' + quoteResidue.length + ') and in immutable run findings/synthesis, plus raw bytes in git history — run git filter-repo and retract the listed claims for a true purge' };
   });
 }
 
