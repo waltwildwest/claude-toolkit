@@ -43,4 +43,19 @@ head -1 "$C" | grep -q '^---$' && grep -q '^description:' "$C" && ok "command fr
 grep -q -- '--fresh' "$C" && grep -q 'correct' "$C" && ok "command routes subcommands" || no "routing" ""
 grep -qi 'stage 2' "$C" && ok "honest not-built-yet stubs" || no "stubs" ""
 
+# --- registration (Task 12) ---
+M="$ROOT/.claude-plugin/marketplace.json"
+node -e '
+const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const p = m.plugins.find((x) => x.name === "re-searcher");
+if (!p) process.exit(1);
+if (p.source !== "./plugins/re-searcher") process.exit(2);
+if (!p.skills.includes("./skills/re-searcher")) process.exit(3);
+if (!p.commands.includes("./commands/research.md")) process.exit(4);
+' "$M" && ok "marketplace entry valid" || no "marketplace" "rc=$?"
+[ -d "$ROOT/plugins/re-searcher/skills/re-searcher" ] && [ -f "$ROOT/plugins/re-searcher/commands/research.md" ] \
+  && ok "marketplace paths exist" || no "paths" ""
+grep -q 're-searcher' "$ROOT/install.sh" && ok "install.sh knows re-searcher" || no "install.sh" ""
+grep -q 're-searcher' "$ROOT/README.md" && ok "README documents re-searcher" || no "README" ""
+
 echo; echo "skill: $pass passed, $fail failed"; [ $fail -eq 0 ]

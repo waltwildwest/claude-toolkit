@@ -155,6 +155,20 @@ Honest by construction:
 
 This is the [Hermes Agent](https://github.com/UniM0cha/claude-self-improving-skills) self-improving-skills idea, kept to the safe half: qualitative pattern-memory with a human in the loop and no code self-modification.
 
+### re-searcher — research that survives the session
+
+`/research <question>` — recall first: prior claims come back as dated, spot-checkable
+claims (never stale verdicts), with near-miss disclosure when nothing matches. New
+research runs — light (one agent, cheap) or fan-out — persist the plan, every agent's
+raw findings, fetched sources and claims into a git-backed markdown vault
+(`~/research-vault`, Obsidian-friendly, `RESEARCH_VAULT_DIR` to relocate).
+
+The honest part: `vault-save` verifies every quoted claim mechanically against the
+cached source bytes — verified quotes are rewritten to the source's exact text, unverifiable
+ones are downgraded to `model-asserted`, never silently trusted. Corrections are
+append-only supersede/retract events; contradicting claims are served flagged, both of
+them, until a human resolves the conflict.
+
 ## Repository layout
 
 ```
