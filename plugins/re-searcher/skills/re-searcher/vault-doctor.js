@@ -273,6 +273,15 @@ async function run() {
     const f = { deadPointersDropped: 0, indexCompacted: null, claimsCurrent: 0, aliasesLearned: [],
       wayback: { exists: 0, requested: 0, retried: 0, droppedFailed: 0, kept: 0 } };
 
+    // Re-read claims + metrics FRESH inside the lock. The sweep/probe phases
+    // ran lock-free (their work report is advisory), but the authoritative
+    // writes below — claims-current.jsonl and the doctor hwm — must reflect
+    // any claim a concurrent vault-save committed during that window, or they
+    // silently drop it and the next run's incremental scan skips it forever.
+    const claimRecordsNow = lib.readJsonl(path.join(vault, 'claims.jsonl')).records;
+    const { claims: claimsNow } = lib.foldClaims(claimRecordsNow);
+    const metricsCountNow = lib.readJsonl(path.join(vault, 'metrics.jsonl')).records.length;
+
     if (report.deadPointers.length) {
       const deadSet = new Set(report.deadPointers.map((p) => p.session));
       const inboxFile = path.join(vault, 'inbox.jsonl');
@@ -301,7 +310,7 @@ async function run() {
 
     // claims-current: the materialized view for cheap greps (active only,
     // effective provenance; events dropped — JSON.stringify skips undefined)
-    const current = Array.from(claims.values()).filter((c) => c.status === 'active')
+    const current = Array.from(claimsNow.values()).filter((c) => c.status === 'active')
       .map((c) => Object.assign({}, c, { events: undefined }));
     lib.atomicWrite(path.join(vault, 'claims-current.jsonl'),
       current.map((c) => JSON.stringify(c)).join('\n') + (current.length ? '\n' : ''));
@@ -320,12 +329,13 @@ async function run() {
 
     fs.mkdirSync(path.join(vault, 'profiles'), { recursive: true });
     lib.atomicWrite(path.join(vault, 'profiles', 'source-quality.md'),
-      quality.renderProfile(quality.scoreQuality(claims), lib.today()));
+      quality.renderProfile(quality.scoreQuality(claimsNow), lib.today()));
     // hwm record BEFORE the dashboard regen so DASHBOARD's "Doctor: last run"
-    // line reflects THIS run, not the previous one
+    // line reflects THIS run, not the previous one. hwm uses the in-lock counts
+    // so a concurrent save's claim is inside the next run's window, not skipped.
     lib.appendJsonl(path.join(vault, 'metrics.jsonl'), {
       v: 1, kind: 'doctor', ts: new Date().toISOString(),
-      hwm: { claims: claimRecords.length, metrics: metricsRecords.length },
+      hwm: { claims: claimRecordsNow.length, metrics: metricsCountNow },
       fixed: { deadPointersDropped: f.deadPointersDropped, aliasesLearned: f.aliasesLearned.length, wayback: f.wayback },
       work: { promote: work.promote.length, freshness: work.freshness.length, mine: work.mine.length, contradictions: work.contradictions.length },
       report: { orphanRuns: report.orphanRuns.length, duplicateSessions: report.duplicateSessions.length,
