@@ -38,7 +38,10 @@ function mineSubagents(transcript) {
   const dir = path.join(path.dirname(transcript), path.basename(transcript, '.jsonl'), 'subagents');
   if (!fs.existsSync(dir)) return [];
   const out = [];
-  for (const f of fs.readdirSync(dir).sort()) {
+  let names;
+  try { names = fs.readdirSync(dir).sort(); }
+  catch (_e) { return out; } // unreadable subagents dir — main mining stands
+  for (const f of names) {
     if (!/^agent-.*\.jsonl$/.test(f)) continue;
     const p = path.join(dir, f);
     try {
@@ -119,10 +122,10 @@ function digest(mined, transcript, subs) {
 function harvestOne(vault, transcript, opts) {
   const mined = mine(transcript);
   if (!mined.messages) return { status: 'error', error: 'no Messages-shaped records in ' + transcript };
-  const subs = mineSubagents(transcript);
   const session = mined.sessionId || path.basename(transcript, '.jsonl');
   const existing = alreadyHarvested(vault, session);
   if (existing) return { status: 'already-harvested', existing, session };
+  const subs = mineSubagents(transcript);
 
   const topic = lib.slugify(opts.topic || path.basename(mined.cwd || '') || 'harvested-session');
   const title = opts.title || 'Harvest: ' + topic;

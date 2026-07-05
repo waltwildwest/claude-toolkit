@@ -2258,7 +2258,10 @@ function mineSubagents(transcript) {
   const dir = path.join(path.dirname(transcript), path.basename(transcript, '.jsonl'), 'subagents');
   if (!fs.existsSync(dir)) return [];
   const out = [];
-  for (const f of fs.readdirSync(dir).sort()) {
+  let names;
+  try { names = fs.readdirSync(dir).sort(); }
+  catch (_e) { return out; } // unreadable subagents dir — main mining stands
+  for (const f of names) {
     if (!/^agent-.*\.jsonl$/.test(f)) continue;
     const p = path.join(dir, f);
     try {
@@ -2285,7 +2288,7 @@ Change `digest(mined, transcript)` to `digest(mined, transcript, subs)` and add 
   }
 ```
 
-In `harvestOne`, after `const mined = mine(transcript);` (and the `messages` guard) add `const subs = mineSubagents(transcript);`; change the digest call to `digest(mined, transcript, subs)`; build the save args with the extra transcripts:
+In `harvestOne`, AFTER the `alreadyHarvested` short-circuit (`if (existing) return ...`) add `const subs = mineSubagents(transcript);` — mining subagents before the idempotence check would make every re-harvest pay full mining cost; change the digest call to `digest(mined, transcript, subs)`; build the save args with the extra transcripts:
 
 ```js
     const saveArgs = [path.join(__dirname, 'vault-save.js'), run.runDir,
