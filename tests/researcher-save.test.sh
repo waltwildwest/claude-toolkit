@@ -218,4 +218,27 @@ node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.applied===1 && r.re
 git -C "$V" log --oneline -1 | grep -q "event" && ok "events auto-commit" || no "events git" "$(git -C "$V" log --oneline -1)"
 grep -q 'Superseded' "$V/topics/mcp-auth-landscape/topic.md" && ok "views reflect supersession" || no "views supersede" ""
 
+# an unexpected throw inside the locked region still emits structured JSON + exit 1
+OUT=$(node "$S" --new-run --topic err-topic --session errr1234 --vault "$V")
+RUNE=$(node -e 'console.log(JSON.parse(process.argv[1]).runDir)' "$OUT")
+cat > "$RUNE/plan.md" <<'EOF'
+---
+topic: err-topic
+title: Err
+aliases: []
+questions: []
+scope: general
+---
+# Plan
+
+```manifest
+[{"role": "solo", "file": "findings/solo.md"}]
+```
+EOF
+mkdir -p "$V/topics/err-topic/topic.md"
+OUT=$(node "$S" "$RUNE" --vault "$V" --light 2>/dev/null); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" '"status":"error"'; } && ok "throw inside lock emits error JSON" || no "error json" "rc=$rcode $OUT"
+[ -d "$V/.lock" ] && no "lock released after throw" "still held" || ok "lock released after throw"
+rm -rf "$V/topics/err-topic"
+
 echo; echo "vault-save: $pass passed, $fail failed"; [ $fail -eq 0 ]

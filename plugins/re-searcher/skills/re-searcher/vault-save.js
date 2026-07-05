@@ -224,6 +224,7 @@ function saveEvents(file) {
   const vault = lib.resolveVault(getFlag('--vault'));
   if (!fs.existsSync(file)) die('events file missing: ' + file);
   const out = lib.withLock(vault, () => {
+    // runId/topic are inert here — events-only validation never registers claims
     const ctx = claimCtx(vault, 'events', null, today());
     let applied = 0;
     const rejectedList = [];
@@ -263,4 +264,10 @@ function main() {
   return persist(path.resolve(runDir));
 }
 
-main();
+function emitFatal(e) {
+  process.stdout.write(JSON.stringify({ status: 'error', error: String((e && e.message) || e) }) + '\n');
+  process.stderr.write('vault-save: failed — the vault may hold partial, uncommitted writes: ' + ((e && e.stack) || e) + '\n');
+  process.exit(1);
+}
+
+try { main(); } catch (e) { emitFatal(e); }

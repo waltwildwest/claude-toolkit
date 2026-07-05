@@ -1405,6 +1405,13 @@ const r3 = cv.validateEvent({ op: "supersede", claim: "clm_a", by: "clm_a" }, ct
 process.exit(r3.ok ? 4 : 0);           // self-supersede is a cycle
 ' "$CV" && ok "supersede cycles rejected" || no "dag" "rc=$?"
 
+# 9. validator-owned fields cannot be smuggled by staged records
+OUT=$(vc '{"statement":"clean claim","quote_method":"forged","note":"forged note"}')
+node -e '
+const r = JSON.parse(process.argv[1]);
+process.exit(r.ok && !("quote_method" in r.record) && !("note" in r.record) ? 0 : 1);
+' "$OUT" && ok "quote_method/note smuggling blocked" || no "smuggle" "$OUT"
+
 echo; echo "claim-validate: $pass passed, $fail failed"; [ $fail -eq 0 ]
 ```
 
@@ -1488,6 +1495,9 @@ function validateClaim(rec, ctx) {
     found_by: rec.found_by === undefined ? 'unknown' : rec.found_by,
     tool: rec.tool === undefined ? 'unknown' : rec.tool,
   });
+  // validator-owned fields: staged values must never survive
+  delete record.quote_method;
+  delete record.note;
   if (quoteMethod) record.quote_method = quoteMethod;
   if (note) record.note = note;
   return { ok: true, record, downgraded, quoteMethod };
@@ -1615,6 +1625,18 @@ printf 'my precious annotation\n' >> "$T"
 node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
 grep -q 'my precious annotation' "$T" && ok "human notes preserved" || no "notes preserved" "$(tail -5 "$T")"
 
+# regeneration is idempotent: repeated regens never duplicate sections
+node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
+node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
+{ [ "$(grep -c '^## Latest synthesis' "$T")" = "1" ] && [ "$(grep -c '^## Notes (human)' "$T")" = "1" ] \
+  && grep -q 'my precious annotation' "$T"; } && ok "repeated regen stays clean" || no "regen idempotent" "$(grep -c '^## Latest synthesis' "$T") synthesis headings"
+
+# an empty newer run (allocated, no synthesis yet) must not blank the synthesis
+mkdir -p "$V/topics/mcp-auth/runs/2026-07-05b-zzzz/findings"
+node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
+grep -q 'Latest synthesis (run 2026-07-05a-9f3c)' "$T" && grep -q 'OAuth 2.1 is required for remote MCP servers' "$T" \
+  && ok "synthesis survives an empty newer run" || no "empty newer run" "$(grep 'Latest synthesis' "$T")"
+
 # INDEX.md lists the topic
 grep -q 'MCP Auth Landscape' "$V/INDEX.md" && grep -q 'topics/mcp-auth/topic.md' "$V/INDEX.md" \
   && ok "INDEX.md lists topic" || no "INDEX" "$(cat "$V/INDEX.md")"
@@ -1682,7 +1704,13 @@ function regenTopic(vault, slug) {
   let notes = NOTES_HEADING + '\n';
   if (fs.existsSync(topicFile)) {
     const old = fs.readFileSync(topicFile, 'utf8');
-    const i = old.indexOf(NOTES_HEADING);
+    // The real notes section is the LAST line-anchored occurrence — the
+    // generated boilerplate mentions the heading mid-sentence, and synthesis
+    // text could echo it; first-match indexOf would slice from there and
+    // duplicate the whole body on every regen.
+    const re = /^## Notes \(human\)/gm;
+    let m, i = -1;
+    while ((m = re.exec(old)) !== null) i = m.index;
     if (i !== -1) notes = old.slice(i);
   }
 
@@ -1697,11 +1725,13 @@ function regenTopic(vault, slug) {
   live.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
 
   const runs = listRuns(vault, slug);
-  const latest = runs[runs.length - 1] || null;
+  // "Latest synthesis" = the newest run that HAS one — a freshly allocated or
+  // aborted run without synthesis.md must not blank the topic view.
+  let latest = null;
   let synthesis = '_No synthesis yet._';
-  if (latest) {
-    const sp = path.join(topicDir, 'runs', latest, 'synthesis.md');
-    if (fs.existsSync(sp)) synthesis = fs.readFileSync(sp, 'utf8').trim();
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const sp = path.join(topicDir, 'runs', runs[i], 'synthesis.md');
+    if (fs.existsSync(sp)) { latest = runs[i]; synthesis = fs.readFileSync(sp, 'utf8').trim(); break; }
   }
 
   const out = [
@@ -1898,6 +1928,29 @@ node -e 'const r=JSON.parse(process.argv[1]); process.exit(r.applied===1 && r.re
   && ok "events: apply + cycle reject" || no "events" "rc=$rcode $OUT"
 git -C "$V" log --oneline -1 | grep -q "event" && ok "events auto-commit" || no "events git" "$(git -C "$V" log --oneline -1)"
 grep -q 'Superseded' "$V/topics/mcp-auth-landscape/topic.md" && ok "views reflect supersession" || no "views supersede" ""
+
+# an unexpected throw inside the locked region still emits structured JSON + exit 1
+OUT=$(node "$S" --new-run --topic err-topic --session errr1234 --vault "$V")
+RUNE=$(node -e 'console.log(JSON.parse(process.argv[1]).runDir)' "$OUT")
+cat > "$RUNE/plan.md" <<'EOF'
+---
+topic: err-topic
+title: Err
+aliases: []
+questions: []
+scope: general
+---
+# Plan
+
+```manifest
+[{"role": "solo", "file": "findings/solo.md"}]
+```
+EOF
+mkdir -p "$V/topics/err-topic/topic.md"
+OUT=$(node "$S" "$RUNE" --vault "$V" --light 2>/dev/null); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" '"status":"error"'; } && ok "throw inside lock emits error JSON" || no "error json" "rc=$rcode $OUT"
+[ -d "$V/.lock" ] && no "lock released after throw" "still held" || ok "lock released after throw"
+rm -rf "$V/topics/err-topic"
 ````
 
 - [ ] **Step 2: Run to verify the new tests fail**
@@ -2099,6 +2152,20 @@ function saveEvents(file) {
 ```
 
 3d. Update the usage-header comment: remove "(Task 8)" markers — all four modes are live now.
+
+3e. Enforce the "one JSON line always" contract against unexpected throws: replace the bare `main();` call at the bottom of vault-save.js with
+
+```js
+function emitFatal(e) {
+  process.stdout.write(JSON.stringify({ status: 'error', error: String((e && e.message) || e) }) + '\n');
+  process.stderr.write('vault-save: failed — the vault may hold partial, uncommitted writes: ' + ((e && e.stack) || e) + '\n');
+  process.exit(1);
+}
+
+try { main(); } catch (e) { emitFatal(e); }
+```
+
+(`die()` paths still print usage errors to stderr and exit 1 before any mutation; this guard covers exceptions escaping the locked region, where tier-1 writes may already be on disk.) Also add a one-line comment at `claimCtx(vault, 'events', null, today())` in `saveEvents` noting runId/topic are inert for event-only validation.
 
 - [ ] **Step 4: Run tests to verify all pass**
 
