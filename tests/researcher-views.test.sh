@@ -51,6 +51,12 @@ printf 'my precious annotation\n' >> "$T"
 node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
 grep -q 'my precious annotation' "$T" && ok "human notes preserved" || no "notes preserved" "$(tail -5 "$T")"
 
+# regeneration is idempotent: repeated regens never duplicate sections
+node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
+node "$VW" --vault "$V" --topic mcp-auth >/dev/null 2>&1
+{ [ "$(grep -c '^## Latest synthesis' "$T")" = "1" ] && [ "$(grep -c '^## Notes (human)' "$T")" = "1" ] \
+  && grep -q 'my precious annotation' "$T"; } && ok "repeated regen stays clean" || no "regen idempotent" "$(grep -c '^## Latest synthesis' "$T") synthesis headings"
+
 # INDEX.md lists the topic
 grep -q 'MCP Auth Landscape' "$V/INDEX.md" && grep -q 'topics/mcp-auth/topic.md' "$V/INDEX.md" \
   && ok "INDEX.md lists topic" || no "INDEX" "$(cat "$V/INDEX.md")"

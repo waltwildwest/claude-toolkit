@@ -48,7 +48,13 @@ function regenTopic(vault, slug) {
   let notes = NOTES_HEADING + '\n';
   if (fs.existsSync(topicFile)) {
     const old = fs.readFileSync(topicFile, 'utf8');
-    const i = old.indexOf(NOTES_HEADING);
+    // The real notes section is the LAST line-anchored occurrence — the
+    // generated boilerplate mentions the heading mid-sentence, and synthesis
+    // text could echo it; first-match indexOf would slice from there and
+    // duplicate the whole body on every regen.
+    const re = /^## Notes \(human\)/gm;
+    let m, i = -1;
+    while ((m = re.exec(old)) !== null) i = m.index;
     if (i !== -1) notes = old.slice(i);
   }
 
