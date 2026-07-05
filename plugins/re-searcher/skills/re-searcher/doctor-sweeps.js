@@ -103,7 +103,7 @@ const SECRET_PATTERNS = [
   ['slack-token', /xox[baprs]-[A-Za-z0-9-]{10,}/],
   ['private-key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ['anthropic-key', /sk-ant-[A-Za-z0-9-]{20,}/],
-  ['bearer-header', /[Aa]uthorization:\s*Bearer\s+[A-Za-z0-9._-]{20,}/],
+  ['bearer-header', /[Aa]uthorization:\s*[Bb]earer\s+[A-Za-z0-9._-]{20,}/],
 ];
 
 // Raw HTML enters git history — this sweep is the safety net behind the

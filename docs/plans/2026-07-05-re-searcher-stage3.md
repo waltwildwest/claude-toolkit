@@ -856,7 +856,7 @@ const SECRET_PATTERNS = [
   ['slack-token', /xox[baprs]-[A-Za-z0-9-]{10,}/],
   ['private-key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ['anthropic-key', /sk-ant-[A-Za-z0-9-]{20,}/],
-  ['bearer-header', /[Aa]uthorization:\s*Bearer\s+[A-Za-z0-9._-]{20,}/],
+  ['bearer-header', /[Aa]uthorization:\s*[Bb]earer\s+[A-Za-z0-9._-]{20,}/],
 ];
 
 // Raw HTML enters git history — this sweep is the safety net behind the
@@ -1487,8 +1487,10 @@ const SNIPPET = 'Run the librarian on a schedule (the deterministic half is also
   + '# Claude Code scheduled agent — deterministic half + the LLM passes:\n'
   + '#   create a weekly scheduled task / routine whose prompt is:  /research doctor\n'
   + '\n'
-  + 'Plain cron leaves promotion/freshness/mining/contradiction judging queued in the\n'
-  + 'work report until a /research doctor session picks them up.\n';
+  + 'Plain cron re-derives the promotion/freshness/mining work each run, but\n'
+  + 'contradiction candidates are emitted ONCE per run (the high-water mark advances\n'
+  + 'even if stdout is discarded) — capture stdout under cron, or prefer the\n'
+  + 'scheduled-agent path so pairs are judged in the same session.\n';
 
 function strFlag(name) { const i = process.argv.indexOf(name); return i !== -1 ? process.argv[i + 1] : null; }
 function numFlag(name, dflt) {
@@ -1751,8 +1753,8 @@ async function run() {
     fs.mkdirSync(path.join(vault, 'profiles'), { recursive: true });
     lib.atomicWrite(path.join(vault, 'profiles', 'source-quality.md'),
       quality.renderProfile(quality.scoreQuality(claims), lib.today()));
-    views.regenDashboard(vault, { work });
-
+    // hwm record BEFORE the dashboard regen so DASHBOARD's "Doctor: last run"
+    // line reflects THIS run, not the previous one
     lib.appendJsonl(path.join(vault, 'metrics.jsonl'), {
       v: 1, kind: 'doctor', ts: new Date().toISOString(),
       hwm: { claims: claimRecords.length, metrics: metricsRecords.length },
@@ -1761,6 +1763,7 @@ async function run() {
       report: { orphanRuns: report.orphanRuns.length, duplicateSessions: report.duplicateSessions.length,
         brokenRefs: report.sourceRefs.broken.length, quoteFails: report.quotes.failed.length, secrets: report.secrets.length },
     });
+    views.regenDashboard(vault, { work });
     const c = lib.gitCommit(vault, 'research: doctor sweep');
     if (c.warning) f.commitWarning = c.warning;
     return f;
