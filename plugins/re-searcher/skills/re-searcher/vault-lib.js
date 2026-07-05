@@ -16,7 +16,48 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const dns = require('dns');
 const { execFileSync } = require('child_process');
+
+// SSRF guard: an agent-supplied research URL must not become a probe of the
+// loopback interface, RFC-1918 space, or the cloud metadata endpoint
+// (169.254.169.254). isPrivateIp classifies a resolved address;
+// checkPublicHost resolves the URL's host and refuses any private answer,
+// re-checkable per redirect hop. RESEARCH_ALLOW_PRIVATE_HOSTS=1 opts out
+// (CI fixtures live on 127.0.0.1; local self-hosted docs may too).
+function isPrivateIp(ip) {
+  const m = String(ip).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    if (a === 0 || a === 127 || a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;      // link-local incl. metadata
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    return false;
+  }
+  const lc = String(ip).toLowerCase();
+  if (lc === '::1' || lc === '::') return true;
+  if (lc.startsWith('::ffff:')) return isPrivateIp(lc.slice(7)); // v4-mapped
+  if (/^(fe8|fe9|fea|feb|fc|fd)/.test(lc)) return true;          // link-local / ULA
+  return false;
+}
+
+function checkPublicHost(urlStr, cb) {
+  if (process.env.RESEARCH_ALLOW_PRIVATE_HOSTS) return cb(null);
+  let host;
+  try { host = new URL(urlStr).hostname.replace(/^\[|\]$/g, ''); } catch (_e) { return cb(new Error('bad url: ' + urlStr)); }
+  const refuse = (ip) => new Error('refusing private/loopback/link-local address ' + ip + ' (SSRF guard; set RESEARCH_ALLOW_PRIVATE_HOSTS=1 to allow)');
+  const classify = (ips) => {
+    for (const ip of ips) if (isPrivateIp(ip)) return cb(refuse(ip));
+    cb(null);
+  };
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) return classify([host]);
+  dns.lookup(host, { all: true }, (err, addrs) => {
+    if (err) return cb(null); // let the real fetch surface the DNS failure
+    classify(addrs.map((a) => a.address));
+  });
+}
 
 function resolveVault(cliVal, opts) {
   const o = opts || {};
@@ -242,4 +283,4 @@ function resolveTerminal(claims, id, seen) {
   return [];
 }
 
-module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, isSafeName, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
+module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, isSafeName, isPrivateIp, checkPublicHost, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };

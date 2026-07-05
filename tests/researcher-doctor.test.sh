@@ -40,6 +40,7 @@ node "$W/wb-server.js" > "$W/wbport.txt" & WBSRV=$!
 trap 'kill $WBSRV 2>/dev/null' EXIT
 for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$W/wbport.txt" ] && break; sleep 0.2; done
 export WAYBACK_API="http://127.0.0.1:$(cat "$W/wbport.txt")"
+export RESEARCH_ALLOW_PRIVATE_HOSTS=1   # wayback fixture is on 127.0.0.1
 
 OLD=$(node -e 'const d=new Date(Date.now()-45*86400000); console.log(d.toISOString().slice(0,10))')
 

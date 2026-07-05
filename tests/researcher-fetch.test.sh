@@ -12,6 +12,7 @@ has(){ case "$1" in *"$2"*) return 0;; *) return 1;; esac }
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) echo "researcher-fetch tests: skipped on Windows"; exit 0;; esac
 W="$(mktemp -d)"; V="$W/vault"; mkdir -p "$V"
 export WAYBACK=off   # pre-existing tests must never hit live archive.org; wayback tests re-enable per-call
+export RESEARCH_ALLOW_PRIVATE_HOSTS=1   # fixtures live on 127.0.0.1; the SSRF guard is exercised negatively below
 
 # Fixture server: /article (also gzip if asked), /redirect -> /article,
 # /challenge, /big (over cap), /slow (never responds)
@@ -135,5 +136,9 @@ OUT=$(WAYBACK=off node "$F" "$BASE/article?wb=off" --vault "$V"); rcode=$?
 # 12. duplicate fetch never re-runs wayback (same URL as test 8)
 OUT=$(WAYBACK= WAYBACK_API="http://127.0.0.1:1" node "$F" "$BASE/article?wb=known" --vault "$V"); rcode=$?
 { [ $rcode -eq 0 ] && has "$OUT" '"status":"duplicate"'; } && ok "duplicate skips wayback" || no "wb dup" "rc=$rcode $OUT"
+
+# 13. SSRF guard: WITHOUT the allow-env, a loopback URL is refused before any request
+OUT=$(RESEARCH_ALLOW_PRIVATE_HOSTS= node "$F" "$BASE/article" --vault "$V" 2>&1); rcode=$?
+{ [ $rcode -eq 1 ] && has "$OUT" 'SSRF guard'; } && ok "SSRF guard refuses loopback by default" || no "ssrf" "rc=$rcode $OUT"
 
 echo; echo "vault-fetch: $pass passed, $fail failed"; [ $fail -eq 0 ]

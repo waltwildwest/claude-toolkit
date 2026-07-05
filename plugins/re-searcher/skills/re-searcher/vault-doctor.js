@@ -59,6 +59,17 @@ function numFlag(name, dflt) {
 
 function httpGet(url, timeoutMs, redirects) {
   return new Promise((resolve, reject) => {
+    // SSRF guard on every hop (wayback probes contact operator-set hosts, but
+    // a redirect or a WAYBACK_API override could still point inward).
+    lib.checkPublicHost(url, (blockErr) => {
+      if (blockErr) return reject(blockErr);
+      httpDo(url, timeoutMs, redirects).then(resolve, reject);
+    });
+  });
+}
+
+function httpDo(url, timeoutMs, redirects) {
+  return new Promise((resolve, reject) => {
     let mod;
     try { mod = new URL(url).protocol === 'http:' ? require('http') : require('https'); }
     catch (e) { return reject(e); }

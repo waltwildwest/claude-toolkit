@@ -23,6 +23,7 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { extract, assess } = require('./html-extract');
+const lib = require('./vault-lib');
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) re-searcher-vault-fetch/0.1';
 const MAX_REDIRECTS = 5;
@@ -48,6 +49,15 @@ function normalizeUrl(u) {
 }
 
 function fetchRaw(u, timeoutMs, maxBytes, redirects, cb) {
+  // SSRF guard on every hop — a redirect to a private/loopback address is the
+  // classic bypass, so the check runs here (fetchRaw recurses on 3xx).
+  lib.checkPublicHost(u, (blockErr) => {
+    if (blockErr) return cb(blockErr);
+    doFetch(u, timeoutMs, maxBytes, redirects, cb);
+  });
+}
+
+function doFetch(u, timeoutMs, maxBytes, redirects, cb) {
   let mod;
   try { mod = new URL(u).protocol === 'http:' ? require('http') : require('https'); }
   catch (e) { return cb(new Error('bad url: ' + u)); }

@@ -193,4 +193,13 @@ for trial in 1 2 3 4 5 6; do
 done
 [ $STAMPEDE_OK -eq 1 ] && ok "withLock survives a 10-writer stale-lock stampede (no lost updates)" || no "stampede" "lost updates"
 
+# 15. isPrivateIp classifies loopback/private/link-local; public stays public
+node -e '
+const lib = require(process.argv[1]);
+const priv = ["127.0.0.1","10.0.0.5","172.16.9.9","192.168.1.1","169.254.169.254","::1","0.0.0.0","100.64.0.1","fe80::1","fd00::1","::ffff:127.0.0.1"];
+const pub = ["8.8.8.8","1.1.1.1","172.32.0.1","192.169.0.1","203.0.113.4","2606:4700::1111"];
+for (const p of priv) if (!lib.isPrivateIp(p)) { console.error("missed private: " + p); process.exit(1); }
+for (const p of pub) if (lib.isPrivateIp(p)) { console.error("flagged public: " + p); process.exit(2); }
+' "$LIB" && ok "isPrivateIp classifies private vs public" || no "isPrivateIp" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]
