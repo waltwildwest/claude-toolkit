@@ -202,4 +202,22 @@ for (const p of priv) if (!lib.isPrivateIp(p)) { console.error("missed private: 
 for (const p of pub) if (lib.isPrivateIp(p)) { console.error("flagged public: " + p); process.exit(2); }
 ' "$LIB" && ok "isPrivateIp classifies private vs public" || no "isPrivateIp" "rc=$?"
 
+# 16. redaction is sticky: a verify AFTER a redaction downgrade must NOT re-promote
+node -e '
+const lib = require(process.argv[1]);
+const recs = [
+  {v:1, id:"clm_r", topic:"t", statement:"s", provenance:"verbatim-grounded", source:"src1"},
+  {v:1, op:"downgrade", claim:"clm_r", by:"redaction", to:"model-asserted", reason:"source redacted"},
+  {v:1, op:"verify", claim:"clm_r", by:"doctor"},
+];
+let c = lib.foldClaims(recs).claims.get("clm_r");
+if (c.provenance !== "model-asserted") { console.error("verify-after-redaction resurrected: " + c.provenance); process.exit(1); }
+// but a normal verify (no redaction) still promotes
+const ok = lib.foldClaims([
+  {v:1, id:"clm_v", topic:"t", statement:"s", provenance:"verbatim-grounded", source:"src1"},
+  {v:1, op:"verify", claim:"clm_v", by:"doctor"},
+]).claims.get("clm_v");
+if (ok.provenance !== "externally-verified") { console.error("normal verify broke: " + ok.provenance); process.exit(2); }
+' "$LIB" && ok "redaction downgrade is sticky against a later verify" || no "sticky redaction" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

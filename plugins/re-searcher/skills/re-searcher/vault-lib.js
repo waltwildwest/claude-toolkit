@@ -236,9 +236,14 @@ function gitCommit(vault, message) {
 
 // Fold the append-only claims file: claim records (id, no op) get a derived
 // status; event records (op) mutate ONLY the folded view, never the file.
-// Verify promotes provenance; downgrade (script-only, written by vault-redact) lowers it.
+// Verify promotes provenance; downgrade (script-only, written by vault-redact)
+// lowers it. Redaction is STICKY: once a claim is downgraded by redaction its
+// evidence is gone, so a later verify can never re-promote it to
+// externally-verified — otherwise a stray verify would resurrect a redacted
+// claim as "verified" with no source to stand on.
 function foldClaims(records) {
   const claims = new Map();
+  const redacted = new Set();
   let skippedEvents = 0;
   for (const r of records) {
     if (r && r.id && !r.op) {
@@ -260,8 +265,12 @@ function foldClaims(records) {
         const other = claims.get(r.by);
         if (other) other.contradictedBy.push(r.claim);
       }
-    } else if (r.op === 'verify') c.provenance = 'externally-verified';
-    else if (r.op === 'downgrade') c.provenance = (typeof r.to === 'string' && r.to) || 'model-asserted';
+    } else if (r.op === 'verify') {
+      if (!redacted.has(r.claim)) c.provenance = 'externally-verified';
+    } else if (r.op === 'downgrade') {
+      c.provenance = (typeof r.to === 'string' && r.to) || 'model-asserted';
+      if (r.by === 'redaction') redacted.add(r.claim);
+    }
   }
   return { claims, skippedEvents };
 }
