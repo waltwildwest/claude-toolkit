@@ -135,7 +135,7 @@ function main() {
     if (near.length) process.stdout.write('no match — closest: ' + near.map((n) => n.slug).join(', ') + ' — one of these? (learn it: vault-search.js --add-alias <slug> "<your term>")\n');
     else process.stdout.write('no match — vault has ' + index.size + ' topic(s), none close.' + (inboxMatches.length ? '' : ' Fresh research needed.') + '\n');
     for (const p of inboxMatches) {
-      process.stdout.write('unharvested session ' + String(p.session).slice(0, 8) + ' (' + (p.topicGuess || '?') + ', noted ' + String(p.ts).slice(0, 10) + ', transcript dies ' + (p.transcript_dies || '?') + ') may cover this — harvest: node vault-harvest.js ' + p.session + '\n');
+      process.stdout.write('unharvested session ' + String(p.session).slice(0, 8) + ' (' + (p.topicGuess || '?') + ', noted ' + String(p.ts).slice(0, 10) + ', transcript dies ' + (p.transcript_dies || '?') + ') may cover this — harvest: node ' + path.join(__dirname, 'vault-harvest.js') + ' ' + p.session + '\n');
     }
     process.exit(2);
   }

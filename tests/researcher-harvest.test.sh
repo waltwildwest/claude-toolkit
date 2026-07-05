@@ -95,4 +95,12 @@ OUT=$(node "$H" "$T" --vault "$V6" 2>/dev/null); rcode=$?
 { [ $rcode -eq 1 ] && has "$OUT" '"status":"error"' && has "$OUT" 'orphanedRun'; } \
   && ok "persist failure surfaces orphaned run" || no "orphan" "rc=$rcode $OUT"
 
+# 10. --latest slugs non-alphanumeric cwd chars the way Claude Code does
+PD2="$P/-Users-w-my-proj-name"
+mkdir -p "$PD2"
+sed 's/sessharv0001/sessuscre001/g' "$T" > "$PD2/sessuscre001.jsonl"
+V7="$W/vault7"; node "$I" --vault "$V7" >/dev/null 2>&1
+OUT=$(node "$H" --latest --cwd "/Users/w/my_proj name" --vault "$V7" --topic slug-smoke); rcode=$?
+{ [ $rcode -eq 0 ] && has "$OUT" '"session":"sessuscre001"'; } && ok "--latest slugs non-alnum cwd chars" || no "cwd slug" "rc=$rcode $OUT"
+
 echo; echo "vault-harvest: $pass passed, $fail failed"; [ $fail -eq 0 ]

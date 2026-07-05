@@ -11,7 +11,7 @@
 **Reference spec:** `docs/specs/2026-07-05-re-searcher-design.md` (v2, LOCKED — "Harvester (stage 2)" section + Pillar 1 "Safety net (lazy harvest)"). Stage 1 interfaces this builds on are in `docs/plans/2026-07-05-re-searcher-stage1.md` (Interfaces blocks).
 
 **Measured ground truth (verified on this machine, Claude Code 2.1.197 — the parser targets are facts, not guesses):**
-- Main transcripts: `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` where `<cwd-slug>` = absolute cwd with `/` and `.` replaced by `-` (e.g. `-Users-walterhoms-Documents-career-switch-pm`). Subagent transcripts (second layout): `~/.claude/projects/<cwd-slug>/<session-id>/subagents/agent-*.jsonl`.
+- Main transcripts: `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` where `<cwd-slug>` = absolute cwd with EVERY non-alphanumeric character replaced by `-` (real dirs show `--` runs that only a full non-alnum mapping produces) (e.g. `-Users-walterhoms-Documents-career-switch-pm`). Subagent transcripts (second layout): `~/.claude/projects/<cwd-slug>/<session-id>/subagents/agent-*.jsonl`.
 - Envelope line types are NOISY: `queue-operation`, `attachment`, `last-prompt`, `system`, `mode` interleave with `user`/`assistant` — the spec's rule (key on `record.message` with `message.role` + `message.content[]`, never the envelope) is mandatory, not stylistic.
 - Message records carry envelope fields `version` ("2.1.197"), `sessionId`, `cwd`, `gitBranch`. Content blocks seen: `text`, `tool_use` (`{type,id,name,input,caller}`), `tool_result`, `thinking`. `Write` input is `{file_path, content}`.
 
@@ -705,7 +705,9 @@ const { mine } = require('./transcript-mine');
 function getFlag(name) { const i = process.argv.indexOf(name); return i !== -1 ? process.argv[i + 1] : null; }
 function die(msg) { process.stderr.write('vault-harvest: ' + msg + '\n'); process.exit(1); }
 function projectsDir() { return process.env.CLAUDE_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects'); }
-function cwdSlug(cwd) { return String(cwd).replace(/[/.]/g, '-'); }
+// Claude Code maps EVERY non-alphanumeric char to '-' in project dir names
+// (verified: real dirs show '--' runs from spaces/underscores, not just /.)
+function cwdSlug(cwd) { return String(cwd).replace(/[^a-zA-Z0-9]/g, '-'); }
 
 function resolveTranscript(arg) {
   if (process.argv.includes('--latest')) {
@@ -935,7 +937,7 @@ In `plugins/re-searcher/skills/re-searcher/vault-search.js`, replace the whole `
     if (near.length) process.stdout.write('no match — closest: ' + near.map((n) => n.slug).join(', ') + ' — one of these? (learn it: vault-search.js --add-alias <slug> "<your term>")\n');
     else process.stdout.write('no match — vault has ' + index.size + ' topic(s), none close.' + (inboxMatches.length ? '' : ' Fresh research needed.') + '\n');
     for (const p of inboxMatches) {
-      process.stdout.write('unharvested session ' + String(p.session).slice(0, 8) + ' (' + (p.topicGuess || '?') + ', noted ' + String(p.ts).slice(0, 10) + ', transcript dies ' + (p.transcript_dies || '?') + ') may cover this — harvest: node vault-harvest.js ' + p.session + '\n');
+      process.stdout.write('unharvested session ' + String(p.session).slice(0, 8) + ' (' + (p.topicGuess || '?') + ', noted ' + String(p.ts).slice(0, 10) + ', transcript dies ' + (p.transcript_dies || '?') + ') may cover this — harvest: node ' + path.join(__dirname, 'vault-harvest.js') + ' ' + p.session + '\n');
     }
     process.exit(2);
   }

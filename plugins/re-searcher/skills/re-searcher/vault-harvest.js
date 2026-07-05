@@ -27,7 +27,9 @@ const { mine } = require('./transcript-mine');
 function getFlag(name) { const i = process.argv.indexOf(name); return i !== -1 ? process.argv[i + 1] : null; }
 function die(msg) { process.stderr.write('vault-harvest: ' + msg + '\n'); process.exit(1); }
 function projectsDir() { return process.env.CLAUDE_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects'); }
-function cwdSlug(cwd) { return String(cwd).replace(/[/.]/g, '-'); }
+// Claude Code maps EVERY non-alphanumeric char to '-' in project dir names
+// (verified: real dirs show '--' runs from spaces/underscores, not just /.)
+function cwdSlug(cwd) { return String(cwd).replace(/[^a-zA-Z0-9]/g, '-'); }
 
 function resolveTranscript(arg) {
   if (process.argv.includes('--latest')) {
