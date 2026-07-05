@@ -169,6 +169,13 @@ ones are downgraded to `model-asserted`, never silently trusted. Corrections are
 append-only supersede/retract events; contradicting claims are served flagged, both of
 them, until a human resolves the conflict.
 
+Sessions you never ran through `/research` aren't lost either: a silent Stop hook drops a
+pointer into the vault inbox, and `/research save` (this session), `/research harvest
+<session>`, or `harvest --inbox` (bulk) mine transcripts into light runs after the fact —
+deterministically (Write payloads and source events with transcript:line pointers, plus
+the session's final summary), idempotently, and with no claims invented: the librarian
+(stage 3) does the verifying.
+
 ## Repository layout
 
 ```
@@ -178,8 +185,8 @@ plugins/route/         skills/route/* + commands/route.md + hooks/hooks.json
 plugins/re-searcher/   skills/re-searcher/* (vault scripts + SKILL.md + references) + commands/research.md
                        (research vault: fetch/extract, quote verification, claims registry, recall)
 .claude-plugin/marketplace.json   marketplace manifest; each plugin's source is its own subdir
-tests/*.test.sh        327 checks across 17 suites (routing, activation, self-tuning, cost, cache,
-                       vault extract/quote/fetch/save/search/views/claims + a contract E2E)
+tests/*.test.sh        345 checks across 20 suites (routing, activation, self-tuning, cost, cache,
+                       vault extract/quote/fetch/save/search/views/claims/mine/inbox/harvest + a contract E2E)
 install.sh · LICENSE
 ```
 

@@ -9,7 +9,7 @@
 // Module API:
 //   resolveVault(cliVal, {mustExist}) atomicWrite(file, data)
 //   readJsonl(file) appendJsonl(file, obj) parseFrontmatter(text)
-//   slugify(s) sha8(s) newId(prefix, seed, taken) msleep(ms)
+//   slugify(s) sha8(s) newId(prefix, seed, taken) today() allocateRun(vault, topicRaw, sessionRaw) msleep(ms)
 //   withLock(vault, fn) gitCommit(vault, message)
 //   foldClaims(records) resolveTerminal(claimsMap, id)
 
@@ -83,6 +83,29 @@ function newId(prefix, seed, taken) {
   let n = 2;
   while (taken && taken.has(id)) { id = prefix + '_' + sha8(seed) + '-' + n; n++; }
   return id;
+}
+
+function today() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Atomic run-folder allocation (spec Pillar 1): parents may be created
+// recursively, but the LEAF run dir is a bare mkdir — same-day collisions
+// bump the letter, they never race. Throws (never exits) — CLI callers die().
+function allocateRun(vault, topicRaw, sessionRaw) {
+  const topic = slugify(topicRaw);
+  const sess = String(sessionRaw || 'anon').replace(/[^a-z0-9]/gi, '').slice(0, 4).toLowerCase() || 'anon';
+  const runsDir = path.join(vault, 'topics', topic, 'runs');
+  fs.mkdirSync(runsDir, { recursive: true });
+  for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
+    const id = today() + letter + '-' + sess;
+    const dir = path.join(runsDir, id);
+    try { fs.mkdirSync(dir); } catch (e) { if (e.code === 'EEXIST') continue; throw e; }
+    fs.mkdirSync(path.join(dir, 'findings'));
+    return { runId: id, runDir: dir, topic };
+  }
+  throw new Error('could not allocate a run folder (26 same-day runs with the same session suffix)');
 }
 
 function msleep(ms) {
@@ -177,4 +200,4 @@ function resolveTerminal(claims, id, seen) {
   return [];
 }
 
-module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, newId, msleep, withLock, gitCommit, foldClaims, resolveTerminal };
+module.exports = { resolveVault, atomicWrite, readJsonl, appendJsonl, parseFrontmatter, slugify, sha8, newId, today, allocateRun, msleep, withLock, gitCommit, foldClaims, resolveTerminal };

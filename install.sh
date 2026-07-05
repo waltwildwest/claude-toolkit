@@ -51,6 +51,11 @@ echo "        \"command\": \"node '$SKILLS/route/route-detect.js'\" } ] } ],"
 echo '      "Stop": [ { "hooks": [ { "type": "command",'
 echo "        \"command\": \"node '$SKILLS/route/route-learn.js' nudge\" } ] } ]"
 echo "    Both are silent unless relevant. Disable with ROUTE_DETECT=off / ROUTE_LEARN=off."
+echo "    re-searcher ships a Stop hook that notes each session in the research vault's"
+echo "    inbox for lazy harvest (silent; pointers only; needs an initialized vault). To"
+echo "    enable it with a copy install, add to \"hooks\" > \"Stop\" alongside route's:"
+echo "      { \"type\": \"command\", \"command\": \"node '$SKILLS/re-searcher/inbox-note.js'\" }"
+echo "    Disable with RESEARCH_INBOX=off. Plugin installs load it automatically."
 
 # route's cache and report need a system Node.js; Claude Code does not put node
 # on PATH itself. Warn, don't fail — everything else in this repo works without it.

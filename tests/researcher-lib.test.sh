@@ -123,4 +123,26 @@ if (fields.topic !== "mcp-auth" || fields.role !== "reader") process.exit(1);
 if (!body.includes("Body line")) process.exit(2);
 ' "$LIB" && ok "parseFrontmatter CRLF" || no "crlf" "rc=$?"
 
+# 10. today() shape
+node -e '
+const lib = require(process.argv[1]);
+process.exit(/^\d{4}-\d{2}-\d{2}$/.test(lib.today()) ? 0 : 1);
+' "$LIB" && ok "today() shape" || no "today" ""
+
+# 11. allocateRun: atomic leaf mkdir, letter bump, findings/ created, throws when exhausted
+node -e '
+const lib = require(process.argv[1]);
+const fs = require("fs"), path = require("path");
+const v = process.argv[2];
+const a = lib.allocateRun(v, "MCP Auth Landscape", "9f3c2ab1");
+if (!/^\d{4}-\d{2}-\d{2}a-9f3c$/.test(a.runId)) process.exit(1);
+if (a.topic !== "mcp-auth-landscape") process.exit(2);
+if (!fs.existsSync(path.join(a.runDir, "findings"))) process.exit(3);
+const b = lib.allocateRun(v, "MCP Auth Landscape", "9f3c2ab1");
+if (!/b-9f3c$/.test(b.runId)) process.exit(4);
+for (const l of "cdefghijklmnopqrstuvwxyz") lib.allocateRun(v, "MCP Auth Landscape", "9f3c2ab1");
+try { lib.allocateRun(v, "MCP Auth Landscape", "9f3c2ab1"); process.exit(5); }
+catch (e) { process.exit(/26 same-day/.test(e.message) ? 0 : 6); }
+' "$LIB" "$V" && ok "allocateRun atomic + letter bump + throws on exhaustion" || no "allocateRun" "rc=$?"
+
 echo; echo "vault-lib: $pass passed, $fail failed"; [ $fail -eq 0 ]

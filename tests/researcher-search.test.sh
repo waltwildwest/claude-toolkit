@@ -84,4 +84,13 @@ OUT=$(node "$SR" mcp --vault "$V" --json)
 node -e 'const r=JSON.parse(process.argv[1]); process.exit(Array.isArray(r.hits) && r.hits[0].provenanceLine ? 0 : 1)' "$OUT" \
   && ok "--json output" || no "json" "$OUT"
 
+# --- Stage 2: lazy-harvest breadcrumbs on miss ---
+printf '{"v":1,"kind":"pointer","session":"sessk8s001x","transcript":"/tmp/none.jsonl","cwd":"/Users/w/proj/kubernetes-ingress-study","topicGuess":"kubernetes-ingress-study","ts":"2026-07-05T09:00:00Z","transcript_dies":"2026-08-04"}\n' >> "$V/inbox.jsonl"
+OUT=$(node "$SR" kubernetes ingress --vault "$V"); rcode=$?
+{ [ $rcode -eq 2 ] && has "$OUT" 'unharvested session sessk8s0' && has "$OUT" 'vault-harvest.js sessk8s001x'; } \
+  && ok "miss announces relevant unharvested session" || no "breadcrumb" "rc=$rcode $OUT"
+OUT=$(node "$SR" quantum entanglement --vault "$V"); rcode=$?
+{ [ $rcode -eq 2 ] && ! has "$OUT" 'unharvested'; } && ok "irrelevant pointers stay silent" || no "silent" "$OUT"
+grep -q '"inbox":\["sessk8s001x"\]' "$V/metrics.jsonl" && ok "breadcrumb logged to metrics" || no "metrics inbox" ""
+
 echo; echo "vault-search: $pass passed, $fail failed"; [ $fail -eq 0 ]

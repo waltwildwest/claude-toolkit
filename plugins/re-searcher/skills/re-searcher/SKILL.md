@@ -91,3 +91,20 @@ Contradicting claims are BOTH served, flagged, dated — never silently pick one
 the record (/research correct): stage supersede/retract/contradict events and apply with
 `vault-save.js --events` — procedure in references/correct.md. The registry is
 append-only; corrections are events, never edits.
+
+## 7 · Capture without ceremony (harvest)
+
+With a vault present, every session gets a Stop-hook pointer in inbox.jsonl automatically —
+pointers only; mining is lazy. Three ways a past session becomes a vault run:
+- **/research save** (this session): `node "$SKILL_DIR/vault-harvest.js" --latest --vault "$VAULT"`
+  — mines the newest transcript for this project into a light-style run (findings digest +
+  harvested summary, NO claims — the librarian upgrades them in stage 3). Relay its provenanceLine.
+- **/research harvest <session-id>** — same for a specific session; `--inbox` drains every
+  pending pointer at once. Harvest is idempotent — already-captured sessions are skipped.
+- **Recall breadcrumbs:** a miss may print `unharvested session … may cover this — harvest:`
+  lines. Offer to run exactly that command, then re-run the search. Never harvest without a
+  recall or user trigger (mining needs a paying customer).
+After answering an ad-hoc research question that didn't go through a run, you may append ONE
+ignorable line: `(unvaulted — "/research save" to keep)`. Never a blocking question.
+
+Deeper procedures load on demand: references/full-path.md · references/claims.md · references/correct.md · references/harvest.md

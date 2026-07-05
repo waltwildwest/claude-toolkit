@@ -71,7 +71,7 @@
       "name": "re-searcher",
       "source": "./plugins/re-searcher",
       "strict": false,
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "A persistent research vault for Claude Code: every research run's plan, per-agent findings, cached sources and quote-verified claims are captured as inspectable markdown with provenance down to the transcript — and future research recalls dated claims to spot-check instead of re-deriving everything.",
       "author": {
         "name": "waltwildwest"
@@ -87,7 +87,9 @@
         "citations",
         "sources",
         "recall",
-        "knowledge-base"
+        "knowledge-base",
+        "harvest",
+        "transcripts"
       ],
       "category": "productivity",
       "skills": [
