@@ -68,6 +68,9 @@ function validateClaim(rec, ctx) {
     found_by: rec.found_by === undefined ? 'unknown' : rec.found_by,
     tool: rec.tool === undefined ? 'unknown' : rec.tool,
   });
+  // validator-owned fields: staged values must never survive
+  delete record.quote_method;
+  delete record.note;
   if (quoteMethod) record.quote_method = quoteMethod;
   if (note) record.note = note;
   return { ok: true, record, downgraded, quoteMethod };

@@ -98,4 +98,11 @@ const r3 = cv.validateEvent({ op: "supersede", claim: "clm_a", by: "clm_a" }, ct
 process.exit(r3.ok ? 4 : 0);           // self-supersede is a cycle
 ' "$CV" && ok "supersede cycles rejected" || no "dag" "rc=$?"
 
+# 9. validator-owned fields cannot be smuggled by staged records
+OUT=$(vc '{"statement":"clean claim","quote_method":"forged","note":"forged note"}')
+node -e '
+const r = JSON.parse(process.argv[1]);
+process.exit(r.ok && !("quote_method" in r.record) && !("note" in r.record) ? 0 : 1);
+' "$OUT" && ok "quote_method/note smuggling blocked" || no "smuggle" "$OUT"
+
 echo; echo "claim-validate: $pass passed, $fail failed"; [ $fail -eq 0 ]
